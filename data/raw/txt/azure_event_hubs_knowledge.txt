@@ -1,0 +1,19 @@
+Azure Event Hubs Knowledge Base
+
+Azure Event Hubs is a fully managed, real-time data streaming platform designed to ingest and process large volumes of events. It is commonly used for telemetry, application logs, clickstreams, IoT data, and other high-throughput event streams.
+
+Core Concepts
+
+An Event Hub is a logical endpoint inside an Event Hubs namespace. Producers send events to an Event Hub, while consumers read events from it.
+
+A partition is an ordered sequence of events within an Event Hub. Partitions allow Event Hubs to scale ingestion and consumption by distributing events across multiple parallel streams.
+
+Consumer groups provide independent views of an event stream. Multiple applications can consume the same Event Hub independently by using separate consumer groups.
+
+Typical Architecture
+
+A common architecture is: event producers send data to Azure Event Hubs, consumers process the stream using services such as Azure Stream Analytics, Azure Functions, Azure Databricks, or custom applications, and downstream systems store or analyze the resulting data.
+
+RAG Learning Note
+
+This document is intentionally created as a small knowledge base for learning document ingestion with LangChain. The same content will later be used in chunking, embedding, indexing, and retrieval exercises.
