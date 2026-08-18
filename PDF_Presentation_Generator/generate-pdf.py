@@ -3,51 +3,98 @@ import sys
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Preformatted, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Preformatted
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+# Pygments for syntax tokenization
+from pygments.lexers import PythonLexer, PowerShellLexer
+
+
 def register_unicode_mono_font():
-    """
-    Finds and registers a system monospace font containing Unicode box-drawing characters.
-    """
-    font_candidates = []
-    
+    """Finds and registers a system monospace font containing Unicode box-drawing characters."""
     if sys.platform.startswith("win"):
-        font_candidates = [
-            "C:\\Windows\\Fonts\\consola.ttf",       # Consolas
-            "C:\\Windows\\Fonts\\lucon.ttf",         # Lucida Console
-            "C:\\Windows\\Fonts\\cour.ttf",          # Courier New
-            "C:\\Windows\\Fonts\\seguisym.ttf",      # Segoe UI Symbol
+        candidates = [
+            "C:\\Windows\\Fonts\\consola.ttf",
+            "C:\\Windows\\Fonts\\lucon.ttf",
+            "C:\\Windows\\Fonts\\cour.ttf",
+            "C:\\Windows\\Fonts\\seguisym.ttf",
         ]
     elif sys.platform == "darwin":
-        font_candidates = [
+        candidates = [
             "/System/Library/Fonts/Menlo.ttc",
             "/System/Library/Fonts/Monaco.ttf",
             "/Library/Fonts/Courier New.ttf",
         ]
-    else:  # Linux / Unix
-        font_candidates = [
+    else:
+        candidates = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
             "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
         ]
 
-    for path in font_candidates:
+    for path in candidates:
         if os.path.exists(path):
             try:
                 pdfmetrics.registerFont(TTFont("UnicodeMono", path))
                 return "UnicodeMono"
             except Exception:
                 continue
-                
     return "Courier"
 
 
+def highlight_code_strict_lines(code_text, is_powershell=False):
+    """
+    Renders syntax-highlighted code line-by-line.
+    Converts indentation to &nbsp; and preserves exact line breaks with <br/>.
+    """
+    lexer = PowerShellLexer() if is_powershell else PythonLexer()
+    
+    color_map = {
+        'k': '#0F766E',      # keywords (teal)
+        'kd': '#0F766E',
+        'kn': '#0F766E',
+        'nf': '#1D4ED8',     # function name (blue)
+        'nc': '#1D4ED8',
+        's': '#B45309',      # string (amber)
+        's1': '#B45309',
+        's2': '#B45309',
+        'sd': '#475569',     # docstrings (slate)
+        'c1': '#64748B',     # comments (muted slate)
+        'nb': '#7C3AED',     # builtins (purple)
+        'mi': '#047857',     # integers
+    }
+
+    lines = code_text.strip('\n').split('\n')
+    highlighted_lines = []
+
+    for line in lines:
+        if not line:
+            highlighted_lines.append('&nbsp;')
+            continue
+
+        raw_tokens = lexer.get_tokens(line)
+        line_parts = []
+        for ttype, val in raw_tokens:
+            tok_key = str(ttype).split('.')[-1].lower()
+            tok_parent = str(ttype).split('.')[-2].lower() if len(str(ttype).split('.')) > 1 else ''
+            target_color = color_map.get(tok_key, color_map.get(tok_parent, None))
+            
+            clean_val = val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            clean_val = clean_val.replace(' ', '&nbsp;')
+            
+            if target_color:
+                line_parts.append(f'<font color="{target_color}">{clean_val}</font>')
+            else:
+                line_parts.append(clean_val)
+                
+        highlighted_lines.append("".join(line_parts))
+
+    return "<br/>".join(highlighted_lines)
+
+
 class NumberedCanvas(canvas.Canvas):
-    """Canvas that performs a two-pass render to dynamically display total page count."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
@@ -60,29 +107,29 @@ class NumberedCanvas(canvas.Canvas):
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
-            self.draw_page_number(num_pages)
+            self.draw_page_decorations(num_pages)
             super().showPage()
         super().save()
 
-    def draw_page_number(self, page_count):
+    def draw_page_decorations(self, page_count):
         self.saveState()
         self.setFont("Helvetica", 8)
         self.setFillColor(colors.HexColor("#64748B"))
         
-        # Header rule & title
+        # Header
         self.setStrokeColor(colors.HexColor("#E2E8F0"))
         self.setLineWidth(0.5)
         self.line(40, 755, 572, 755)
-        self.drawString(40, 760, "Stage 1.4.2.2 — Detecting Scanned / Non-Text PDF Pages")
+        self.drawString(40, 760, "Stage 1.4.2.5 — Choosing an OCR Approach & Running OCR")
         
-        # Footer rule & page numbering
-        self.line(40, 45, 572, 45)
+        # Footer
+        self.line(40, 42, 572, 42)
         page_str = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(572, 32, page_str)
+        self.drawRightString(572, 30, page_str)
         self.restoreState()
 
 
-def build_pdf(filename="Stage_1_4_2_2_Detecting_Scanned_PDF_Pages.pdf"):
+def build_pdf(filename="Stage_1_4_2_5_OCR_Implementation.pdf"):
     mono_font = register_unicode_mono_font()
 
     doc = SimpleDocTemplate(
@@ -100,8 +147,8 @@ def build_pdf(filename="Stage_1_4_2_2_Detecting_Scanned_PDF_Pages.pdf"):
         'DocTitle',
         parent=styles['Heading1'],
         fontName='Helvetica-Bold',
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=19,
         textColor=colors.HexColor('#0F172A'),
         spaceAfter=10
     )
@@ -110,11 +157,10 @@ def build_pdf(filename="Stage_1_4_2_2_Detecting_Scanned_PDF_Pages.pdf"):
         'DocH2',
         parent=styles['Heading2'],
         fontName='Helvetica-Bold',
-        fontSize=11.5,
-        leading=15,
+        fontSize=10.5,
+        leading=14,
         textColor=colors.HexColor('#1E293B'),
-        spaceBefore=11,
-        spaceAfter=4
+        keepWithNext=True
     )
 
     body_style = ParagraphStyle(
@@ -124,273 +170,312 @@ def build_pdf(filename="Stage_1_4_2_2_Detecting_Scanned_PDF_Pages.pdf"):
         fontSize=9,
         leading=13,
         textColor=colors.HexColor('#334155'),
+        spaceBefore=2,
         spaceAfter=4
     )
 
-    code_style = ParagraphStyle(
-        'DocCode',
+    code_paragraph_style = ParagraphStyle(
+        'LineByLineHighlightedCode',
         fontName=mono_font,
-        fontSize=7.5,
-        leading=9.5,
-        textColor=colors.HexColor('#0F172A'),
-        backColor=colors.HexColor('#F8FAFC'),
-        borderColor=colors.HexColor('#CBD5E1'),
-        borderWidth=0.5,
-        borderPadding=5,
-        spaceBefore=3,
-        spaceAfter=5
+        fontSize=7.2,
+        leading=10.2,
+        textColor=colors.HexColor('#1E293B')
+    )
+
+    diagram_style = ParagraphStyle(
+        'DiagramPreformatted',
+        fontName=mono_font,
+        fontSize=7.2,
+        leading=8.8,
+        textColor=colors.HexColor('#0F766E')
     )
 
     story = []
 
-    content_blocks = [
-        ("title", "Stage 1.4.2.2 — Detecting Scanned / Non-Text PDF Pages"),
-        ("body", "Exactly. We should not install OCR yet. First we'll understand and implement <b>Stage 1.4.2.2 — Detecting Scanned / Non-Text PDF Pages</b>.<br/>The goal is to build a small inspection experiment in your existing notebook:"),
-        ("code", "notebooks/\n└── text-loaders/\n    └── 01_data_ingestion.ipynb"),
-        
-        ("h2", "1. What are we trying to detect?"),
-        ("body", "For every PDF page, we want to answer:"),
-        ("code", "Does this page contain useful extractable text?\n             │\n        ┌────┴────┐\n        │         │\n       YES        NO\n        │         │\n        ▼         ▼\n Normal PDF      OCR candidate"),
-        ("body", "But we'll go one step further.<br/>A page can contain some text and still be problematic. So we'll collect useful diagnostics rather than simply returning True/False."),
+    def make_heading(text):
+        p = Paragraph(text, h2_style)
+        t = Table([[p]], colWidths=[532])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
+            ('LINELEFT', (0, 0), (0, -1), 3, colors.HexColor('#2563EB')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        return t
 
-        ("h2", "1.4.2.2 — PDF Page Inspection"),
-        
-        ("h2", "Step 1 — Create the inspection function"),
-        ("body", "Add a new Markdown cell:"),
-        ("code", "# 1.4.2.2 Detecting Scanned / Non-Text PDF Pages\n\nThe objective is to inspect every PDF page before deciding whether normal\ntext extraction is sufficient or OCR may be required."),
-        ("body", "Then add this code cell:"),
-        ("code", """def inspect_pdf_documents(name, documents):
-    \"\"\"
-    Inspect LangChain Documents produced from a PDF.
-
-    Reports:
-    - page number
-    - extracted character count
-    - whether text exists
-    - source metadata
-    \"\"\"
-
-    print("=" * 80)
-    print(f"PDF INSPECTION: {name}")
-    print("=" * 80)
-
-    print(f"Number of pages/documents: {len(documents)}")
-
-    for index, document in enumerate(documents, start=1):
-
-        content = document.page_content.strip()
-
-        print(f"\\nPage {index}")
-        print("-" * 80)
-
-        print("Characters :", len(content))
-        print("Has text   :", bool(content))
-        print("Metadata   :", document.metadata)"""),
-
-        ("h2", "Step 2 — Inspect the text-based PDF"),
-        ("body", "Run:"),
-        ("code", "inspect_pdf_documents(\n    \"Text-based PDF\",\n    text_documents\n)"),
-        ("body", "You should see something conceptually similar to:"),
-        ("code", "================================================================================\nPDF INSPECTION: Text-based PDF\n================================================================================\n\nNumber of pages/documents: 5\n\nPage 1\n--------------------------------------------------------------------------------\nCharacters : *******\nHas text   : True\n\nPage 2\n--------------------------------------------------------------------------------\nCharacters : *******\nHas text   : True"),
-        ("body", "and so on.<br/>The exact character counts aren't important. The important observation is <b>Has text : True</b> for the pages containing extractable text."),
-
-        ("h2", "Step 3 — Inspect the scanned PDF"),
-        ("body", "Now run:"),
-        ("code", "inspect_pdf_documents(\n    \"Scanned PDF\",\n    scanned_documents\n)"),
-        ("body", "You should see something similar to:"),
-        ("code", "================================================================================\nPDF INSPECTION: Scanned PDF\n================================================================================\n\nNumber of pages/documents: 1\n\nPage 1\n--------------------------------------------------------------------------------\nCharacters : 0\nHas text   : False"),
-        ("body", "This is exactly what we want to demonstrate. We have now programmatically detected:"),
-        ("code", "Text PDF\n\nPage 1 → text available\nPage 2 → text available\n...\nversus:\n\nScanned PDF\n\nPage 1 → no extractable text"),
-
-        ("h2", "Step 4 — Make the detection reusable"),
-        ("body", "The previous function is useful for learning, but let's improve it.<br/>Create:"),
-        ("code", """def analyze_pdf_pages(documents):
-    \"\"\"
-    Analyze PDF pages and return page-level diagnostics.
-    \"\"\"
-
-    results = []
-
-    for page_number, document in enumerate(documents, start=1):
-
-        content = document.page_content.strip()
-
-        results.append({
-            "page": page_number,
-            "characters": len(content),
-            "has_text": bool(content),
-            "metadata": document.metadata
-        })
-
-    return results"""),
-        ("body", "Now execute:"),
-        ("code", "text_analysis = analyze_pdf_pages(text_documents)\n\nscanned_analysis = analyze_pdf_pages(scanned_documents)"),
-        ("body", "Inspect <code>text_analysis</code> and <code>scanned_analysis</code>. You'll get Python dictionaries representing each page."),
-
-        ("h2", "Step 5 — Make the result easier to understand"),
-        ("body", "Because you're using a notebook, let's use a DataFrame:"),
-        ("code", "import pandas as pd\n\ntext_df = pd.DataFrame(text_analysis)\ntext_df"),
-        ("table_text", [
-            ["page", "characters", "has_text"],
-            ["1", "850", "True"],
-            ["2", "720", "True"],
-            ["3", "940", "True"],
-            ["4", "650", "True"],
-            ["5", "810", "True"]
-        ]),
-        ("body", "Now:"),
-        ("code", "scanned_df = pd.DataFrame(scanned_analysis)\nscanned_df"),
-        ("table_text", [
-            ["page", "characters", "has_text"],
-            ["1", "0", "False"]
-        ]),
-        ("body", "This makes the difference very obvious."),
-
-        ("h2", "Step 6 — Don't stop at has_text"),
-        ("body", "This is an important production-level concept. Consider this PDF page:"),
-        ("code", "Page 3\n\nCharacters: 37\nHas text: True"),
-        ("body", "Does that automatically mean the page is fine? No. It could be:"),
-        ("code", "                    Page 3\n                      │\n             Has some text\n                      │\n          ┌───────────┴───────────┐\n          ▼                       ▼\n   Useful extraction        Poor extraction\n          │                       │\n          ▼                       ▼\n       Continue              Investigate"),
-        ("body", "For example, the page could contain: a large table, an image containing text, a scanned signature, a diagram, a two-column layout, or text extracted in the wrong order.<br/><br/><b>Therefore: Text presence is a detection signal, not an extraction-quality guarantee.</b>"),
-
-        ("h2", "Step 7 — Introduce a text threshold"),
-        ("body", "Let's create a simple learning-oriented classifier:"),
-        ("code", """def classify_page(content, minimum_characters=50):
-    \"\"\"
-    Simple learning-oriented classification.
-
-    Returns:
-        TEXT_AVAILABLE
-        POSSIBLE_SCANNED
-    \"\"\"
-
-    character_count = len(content.strip())
-
-    if character_count >= minimum_characters:
-        return "TEXT_AVAILABLE"
-
-    return "POSSIBLE_SCANNED\""""),
-        ("body", "Now test it:"),
-        ("code", "for document in text_documents:\n    result = classify_page(document.page_content)\n    print(result)\n\nfor document in scanned_documents:\n    result = classify_page(document.page_content)\n    print(result)"),
-        ("body", "Your scanned page should be classified as: <b>POSSIBLE_SCANNED</b>"),
-
-        ("h2", "Step 8 — Why do we call it POSSIBLE_SCANNED?"),
-        ("body", "This naming is intentional. We should not say 'No text → definitely scanned PDF' because there are other possibilities:"),
-        ("code", "No extracted text\n       │\n       ├── Scanned page\n       │\n       ├── Image-only page\n       │\n       ├── Extraction failure\n       │\n       ├── Unsupported encoding\n       │\n       └── Corrupted/unusual PDF"),
-        ("body", "Therefore our ingestion pipeline should say <b>POSSIBLE_SCANNED</b> rather than <b>DEFINITELY_SCANNED</b>. This is a much better engineering mindset."),
-
-        ("h2", "Step 9 — Build our first PDF inspection report"),
-        ("body", "Let's combine everything:"),
-        ("code", """def generate_pdf_inspection_report(documents, minimum_characters=50):
-
-    report = []
-
-    for page_number, document in enumerate(documents, start=1):
-
-        content = document.page_content.strip()
-        character_count = len(content)
-
-        if character_count >= minimum_characters:
-            status = "TEXT_AVAILABLE"
+    def make_code_box(content, is_python=True, tag="PYTHON"):
+        if is_python:
+            is_ps = (tag == "POWERSHELL" or tag == "TERMINAL")
+            html_content = highlight_code_strict_lines(content, is_powershell=is_ps)
+            element = Paragraph(html_content, code_paragraph_style)
+            bg = colors.HexColor('#F8FAFC')
+            border_color = colors.HexColor('#CBD5E1')
+            tag_color = colors.HexColor('#2563EB')
         else:
-            status = "POSSIBLE_SCANNED"
+            element = Preformatted(content, diagram_style)
+            bg = colors.HexColor('#F0FDFA')
+            border_color = colors.HexColor('#99F6E4')
+            tag_color = colors.HexColor('#0D9488')
 
-        report.append({
-            "page": page_number,
-            "characters": character_count,
-            "status": status,
-            "source": document.metadata.get("source"),
-        })
+        header_p = Paragraph(f"<b><font size=6 color='{tag_color}'>{tag}</font></b>", body_style)
+        
+        t = Table([[header_p], [element]], colWidths=[532])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), bg),
+            ('BOX', (0, 0), (-1, -1), 0.5, border_color),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, border_color),
+            ('TOPPADDING', (0, 0), (-1, 0), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 1), (-1, 1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, 1), 5),
+        ]))
+        return t
 
-    return report"""),
-        ("body", "Run:"),
-        ("code", "report = generate_pdf_inspection_report(scanned_documents)\npd.DataFrame(report)"),
+    content_blocks = [
+        ("title", "Stage 1.4.2.5 — Choosing an OCR Approach and Running OCR"),
+        ("body", "At this point, we already established an important distinction: <b>A scanned PDF page is essentially an image.</b><br/>So normal PDF text extractors (such as PyPDFLoader or PyMuPDFLoader) return little or no meaningful text.<br/>Our goal now is:"),
+        ("diagram", """scanned PDF
+    ↓
+scanned_page.png
+    ↓
+OCR Engine
+    ↓
+recognized text
+    ↓
+LangChain Document
+    ↓
+later → chunking → embedding → vector DB → retrieval""", "TARGET PIPELINE"),
+        ("body", "For this learning stage, we start with <b>Tesseract OCR</b>."),
+
+        ("h2", "1. Why Tesseract for this stage?"),
+        ("body", "There are several OCR approaches available across the ecosystem:"),
         ("table_text", [
-            ["page", "characters", "status", "source"],
-            ["1", "0", "POSSIBLE_SCANNED", "..."]
+            ["OCR Approach", "Type", "Best Suited For"],
+            ["Tesseract", "Open source", "Learning OCR fundamentals, local processing"],
+            ["EasyOCR", "Open source", "Multilingual / general image OCR"],
+            ["PaddleOCR", "Open source", "Stronger document / layout OCR"],
+            ["Docling", "Open source", "Document understanding + structured extraction"],
+            ["Azure Doc Intelligence", "Cloud", "Enterprise document processing"],
+            ["Google Document AI", "Cloud", "Enterprise document understanding"],
+            ["AWS Textract", "Cloud", "Enterprise document extraction"],
+            ["OpenAI / Gemini Vision", "Closed / API", "Vision + reasoning + extraction"]
         ]),
-        ("body", "Now test the normal PDF:"),
-        ("code", "report = generate_pdf_inspection_report(text_documents)\npd.DataFrame(report)"),
-        ("body", "You should see <b>TEXT_AVAILABLE</b> for the normal pages."),
+        ("body", "We shouldn't jump to Docling or cloud OCR yet. The purpose of Stage 1.4.2.5 is to understand the fundamental mechanism: <i>How do we turn pixels from a scanned page into text that can enter our RAG pipeline?</i> Tesseract is open-source and provides Windows installers via the UB Mannheim distribution."),
 
-        ("h2", "Step 10 — Our first ingestion decision engine"),
-        ("body", "We can now represent our current learning architecture as:"),
-        ("code", """                     PDF
+        ("h2", "2. Important: Tesseract has TWO parts"),
+        ("body", "When we use <code>import pytesseract</code>, we have not installed the OCR engine itself. There are two distinct components:"),
+        ("diagram", """Windows
+│
+├── Tesseract OCR Engine
+│       ↓
+│   actual OCR program (.exe binary)
+│
+└── Python
+        ↓
+    pytesseract
+        ↓
+    Python wrapper that communicates with Tesseract""", "TWO-PART ARCHITECTURE"),
+        ("body", "<b>Component 1:</b> Tesseract executable engine.<br/><b>Component 2:</b> <code>pytesseract</code> Python wrapper."),
+
+        ("h2", "3. OCR setup on your Windows 10 machine"),
+        ("body", "Because you are using Windows 10, VS Code, Notebook, and <code>uv</code>, we'll keep the setup consistent with your existing environment.<br/><br/><b>Step 3.1 — Install Tesseract itself:</b><br/>Download/install the Windows version from UB Mannheim. During installation, make sure English language data (<code>eng</code>) is selected.<br/>Typical installation path: <code>C:\\Program Files\\Tesseract-OCR\\tesseract.exe</code>"),
+
+        ("h2", "4. Verify Tesseract from PowerShell"),
+        ("body", "After installation, close and reopen VS Code/PowerShell to refresh PATH environment variables. Run:"),
+        ("code", "tesseract --version", "POWERSHELL"),
+        ("body", "Expected output:"),
+        ("diagram", "tesseract 5.x.x\n leptonica-...\n ...", "OUTPUT"),
+        ("body", "Then check available language models:"),
+        ("code", "tesseract --list-langs", "POWERSHELL"),
+        ("diagram", "List of available languages in \"...\"\neng\nosd", "OUTPUT"),
+
+        ("h2", "5. What if PowerShell says tesseract is not recognized?"),
+        ("body", "This means Tesseract is installed but Windows cannot locate it in PATH. Test the absolute path first:"),
+        ("code", '& "C:\\Program Files\\Tesseract-OCR\\tesseract.exe" --version', "POWERSHELL"),
+        ("body", "If that works, add <code>C:\\Program Files\\Tesseract-OCR</code> to your Windows system/user PATH."),
+
+        ("h2", "6. Now install the Python wrapper using UV"),
+        ("body", "Go to your existing RAG project root and add the package:"),
+        ("code", """cd <your-rag-learning-project>
+uv add pytesseract""", "POWERSHELL"),
+        ("body", "<code>uv add</code> updates <code>pyproject.toml</code>, lockfile, and virtual environment automatically."),
+        ("diagram", """uv                  → manages Python dependencies (pytesseract)
+Windows Installer   → installs Tesseract OCR binary engine""", "DEPENDENCY SEPARATION"),
+
+        ("h2", "7. Verify pytesseract in your notebook"),
+        ("body", "Create a new cell in your Stage 1.4.2.5 notebook and run:"),
+        ("code", """import pytesseract
+
+print(pytesseract.get_tesseract_version())
+print(pytesseract.get_languages())""", "PYTHON"),
+        ("body", "Output should reflect your installed engine version and <code>['eng', 'osd', ...]</code>."),
+
+        ("h2", "8. Verify our actual scanned_page.png"),
+        ("body", "Load the image produced from the previous experiment:"),
+        ("code", """from PIL import Image
+
+image = Image.open("scanned_page.png")
+
+print(image.size)
+print(image.mode)""", "PYTHON"),
+        ("body", "Typical output: <code>(1700, 2200), RGB</code>."),
+
+        ("h2", "9. Look at the scanned page before OCR"),
+        ("body", "Inspect the visual frame:"),
+        ("code", "display(image)", "PYTHON"),
+        ("body", "Remember: The PDF viewer sees structured text, but the OCR engine sees only raw pixel color arrays."),
+
+        ("h2", "10. Run our first OCR"),
+        ("body", "Execute the character recognition:"),
+        ("code", """import pytesseract
+
+ocr_text = pytesseract.image_to_string(
+    image,
+    lang="eng"
+)
+
+print(ocr_text)""", "PYTHON"),
+        ("diagram", """scanned_page.png → Image → pytesseract → Tesseract OCR → recognized text""", "FIRST OCR RUN"),
+
+        ("h2", "11. Save the OCR result"),
+        ("body", "Preserve the output text to disk:"),
+        ("code", """ocr_output_path = "scanned_page_ocr.txt"
+
+with open(ocr_output_path, "w", encoding="utf-8") as f:
+    f.write(ocr_text)
+
+print(f"OCR output saved to: {ocr_output_path}")""", "PYTHON"),
+        ("body", "This creates a clear visual transformation: <code>scanned_page.png</code> (IMAGE) → <code>scanned_page_ocr.txt</code> (TEXT)."),
+
+        ("h2", "12. Now connect OCR to LangChain"),
+        ("body", "OCR is an ingestion capability. Here is how it completes the RAG flow:"),
+        ("diagram", """                 Scanned PDF
                       │
                       ▼
-              ┌───────────────┐
-              │ Inspect Pages │
-              └───────┬───────┘
+              PDF page image
                       │
-             ┌────────┴────────┐
-             │                 │
-             ▼                 ▼
-      TEXT_AVAILABLE     POSSIBLE_SCANNED
-             │                 │
-             ▼                 ▼
-    Normal extraction      Investigate
-             │                 │
-             │                 ▼
-             │                OCR
-             │
-             └──────────┬──────┘
-                        ▼
-               LangChain Documents"""),
-        ("body", "Important: We aren't actually running OCR yet. We're only building the decision point that tells us: <i>'This page probably needs additional processing.'</i>"),
+                      ▼
+                OCR Engine
+                      │
+                      ▼
+                  OCR text
+                      │
+                      ▼
+           LangChain Document
+                      │
+                      ▼
+                  Chunking
+                      │
+                      ▼
+                 Embedding
+                      │
+                      ▼
+                Vector Store
+                      │
+                      ▼
+                 Retrieval
+                      │
+                      ▼
+                     LLM""", "INGESTION INTEGRATION"),
+        ("body", "<b>Without OCR:</b> Scanned PDF → No text → No chunks → Retrieval fails.<br/><b>With OCR:</b> Scanned PDF → OCR Text → Chunks → Embeddings → Vector DB → Accurate Retrieval."),
 
-        ("h2", "Step 11 — One important improvement"),
-        ("body", "Our current detector only examines <code>document.page_content</code>. For complex PDFs, that's not enough. For our next experiment we'll inspect the PDF itself:"),
-        ("code", """Page
- │
- ├── Text blocks
- ├── Images
- ├── Image count
- ├── Text character count
- ├── Text density
- └── Potentially suspicious pages"""),
-        ("body", "That gives us a much stronger picture:"),
-        ("code", """                    PDF PAGE
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-        Text         Images       Layout
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                Page Analysis
-                       │
-                       ▼
-              Ingestion Decision"""),
-        ("body", "That will be our next experiment before OCR.<br/><br/><b>Your learning progression is now:</b>"),
-        ("code", """1.4.2 OCR & Complex PDF Ingestion
-        │
-        ├── 1.4.2.1 Text PDF vs Scanned PDF       ✓
-        │
-        ├── 1.4.2.2 Detect Non-Text Pages         ← We are here
-        │
-        ├── 1.4.2.3 Deep PDF Page Analysis
-        │
-        ├── 1.4.2.4 OCR Fundamentals
-        │
-        ├── 1.4.2.5 OCR Implementation
-        │
-        └── 1.4.2.6 OCR → LangChain Documents"""),
-        ("body", "Don't install an OCR engine yet. First complete the page-analysis experiment; it will make the reason for OCR much clearer and will give you a more production-oriented mental model of document ingestion.")
+        ("h2", "13. Create a LangChain Document"),
+        ("body", "Convert the recognized text into a standard LangChain Document object:"),
+        ("code", """from langchain_core.documents import Document
+
+ocr_document = Document(
+    page_content=ocr_text,
+    metadata={
+        "source": "scanned_page.png",
+        "document_type": "scanned_pdf_page",
+        "ocr": True,
+        "ocr_engine": "tesseract",
+        "language": "eng"
+    }
+)
+
+print(ocr_document)
+print(ocr_document.page_content)""", "PYTHON"),
+
+        ("h2", "14. Why metadata becomes especially important here"),
+        ("body", "Preserving provenance (<code>ocr: True</code>) allows downstream debugging when tracking citation quality across multi-format corpora:"),
+        ("diagram", """LLM answer
+   ↓
+retrieved chunk
+   ↓
+OCR-generated chunk (metadata: ocr=True, page=12)
+   ↓
+employee_handbook.pdf""", "PROVENANCE TRACING"),
+
+        ("h2", "15. One very important observation"),
+        ("body", "OCR is prone to minor character hallucinations (e.g. <code>Azure Event Hub</code> → <code>Azure Event Huh</code>, or <code>Data Explorer</code> → <code>Data ExpIorer</code>).<br/>Because OCR errors degrade chunks, embeddings, and retrieval accuracy, production systems use preprocessing and quality evaluation."),
+
+        ("h2", "16. Our first OCR experiment should be deliberately simple"),
+        ("body", "Establish the baseline with raw <code>image_to_string()</code> first. Inspect word accuracy, line preservation, and table integrity before introducing advanced pre-processing filters (grayscale, noise removal, binarization, deskewing)."),
+
+        ("h2", "17. Also understand what Tesseract is NOT doing"),
+        ("body", "Tesseract detects characters and words, but does not parse semantic relationships (e.g., mapping column keys to row values in complex tabular schemas). Advanced document understanding uses tools like PaddleOCR, Docling, Azure Document Intelligence, Google Document AI, or AWS Textract."),
+
+        ("h2", "18. Your Stage 1.4.2.5 learning target"),
+        ("diagram", """Stage 1.4.2.5
+│
+├── Understand OCR
+├── Choose Tesseract
+├── Install Tesseract on Windows
+├── Install pytesseract using UV
+├── Verify Tesseract
+├── Load scanned_page.png
+├── Run first OCR
+├── Inspect OCR output
+├── Save OCR text
+└── Convert OCR output into LangChain Document""", "TARGET CHECKLIST"),
+        ("body", "The upcoming progression:"),
+        ("diagram", """Stage 1.4.2.5: Basic OCR
+      ↓
+Stage 1.4.2.6: OCR preprocessing
+      ↓
+Stage 1.4.2.7: OCR quality evaluation
+      ↓
+Stage 1.4.2.8: OCR + PDF page pipeline
+      ↓
+Stage 1.4.2.9: OCR → LangChain Documents""", "ROADMAP"),
+
+        ("h2", "One thing to do first"),
+        ("body", "Before writing notebook code, verify your CLI environment:"),
+        ("code", """tesseract --version
+tesseract --list-langs
+uv add pytesseract""", "POWERSHELL"),
+        ("body", "Once these checks succeed, your environment is ready to execute OCR against <code>scanned_page.png</code> cell by cell.")
     ]
 
-    for block_type, content in content_blocks:
-        if block_type == "title":
-            story.append(Paragraph(content, title_style))
-        elif block_type == "h2":
-            story.append(Paragraph(content, h2_style))
-        elif block_type == "body":
-            story.append(Paragraph(content, body_style))
-        elif block_type == "code":
-            story.append(Preformatted(content, code_style))
-        elif block_type == "table_text":
-            t = Table(content, colWidths=[55, 80, 110, 160][:len(content[0])])
+    for item in content_blocks:
+        b_type = item[0]
+        if b_type == "title":
+            story.append(Paragraph(item[1], title_style))
+            story.append(Spacer(1, 3))
+        elif b_type == "h2":
+            story.append(Spacer(1, 4))
+            story.append(make_heading(item[1]))
+            story.append(Spacer(1, 3))
+        elif b_type == "body":
+            story.append(Paragraph(item[1], body_style))
+            story.append(Spacer(1, 2))
+        elif b_type == "code":
+            tag = item[2] if len(item) > 2 else "PYTHON"
+            story.append(make_code_box(item[1], is_python=True, tag=tag))
+            story.append(Spacer(1, 3))
+        elif b_type == "diagram":
+            tag = item[2] if len(item) > 2 else "STRUCTURE"
+            story.append(make_code_box(item[1], is_python=False, tag=tag))
+            story.append(Spacer(1, 3))
+        elif b_type == "table_text":
+            data = item[1]
+            t = Table(data, colWidths=[130, 95, 307][:len(data[0])])
             t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E2E8F0')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F1F5F9')),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0F172A')),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 8),
@@ -400,10 +485,10 @@ def build_pdf(filename="Stage_1_4_2_2_Detecting_Scanned_PDF_Pages.pdf"):
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ]))
             story.append(t)
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 3))
 
     doc.build(story, canvasmaker=NumberedCanvas)
-    print(f"Generated '{filename}' using registered font '{mono_font}'.")
+    print(f"Successfully generated PDF: '{filename}'")
 
 if __name__ == "__main__":
     build_pdf()
