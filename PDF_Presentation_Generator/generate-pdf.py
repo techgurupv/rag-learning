@@ -1,100 +1,38 @@
 import os
-import sys
 from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Preformatted
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# Pygments for syntax tokenization
-from pygments.lexers import PythonLexer, PowerShellLexer
+DOCUMENT_NAME = "Stage 1.4.2.5.3 — Docling Layout & Reading Order"
 
-
-def register_unicode_mono_font():
-    """Finds and registers a system monospace font containing Unicode box-drawing characters."""
-    if sys.platform.startswith("win"):
-        candidates = [
-            "C:\\Windows\\Fonts\\consola.ttf",
-            "C:\\Windows\\Fonts\\lucon.ttf",
-            "C:\\Windows\\Fonts\\cour.ttf",
-            "C:\\Windows\\Fonts\\seguisym.ttf",
-        ]
-    elif sys.platform == "darwin":
-        candidates = [
-            "/System/Library/Fonts/Menlo.ttc",
-            "/System/Library/Fonts/Monaco.ttf",
-            "/Library/Fonts/Courier New.ttf",
-        ]
-    else:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        ]
-
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                pdfmetrics.registerFont(TTFont("UnicodeMono", path))
-                return "UnicodeMono"
-            except Exception:
-                continue
-    return "Courier"
-
-
-def highlight_code_strict_lines(code_text, is_powershell=False):
-    """
-    Renders syntax-highlighted code line-by-line.
-    Converts indentation to &nbsp; and preserves exact line breaks with <br/>.
-    """
-    lexer = PowerShellLexer() if is_powershell else PythonLexer()
-    
-    color_map = {
-        'k': '#0F766E',      # keywords (teal)
-        'kd': '#0F766E',
-        'kn': '#0F766E',
-        'nf': '#1D4ED8',     # function name (blue)
-        'nc': '#1D4ED8',
-        's': '#B45309',      # string (amber)
-        's1': '#B45309',
-        's2': '#B45309',
-        'sd': '#475569',     # docstrings (slate)
-        'c1': '#64748B',     # comments (muted slate)
-        'nb': '#7C3AED',     # builtins (purple)
-        'mi': '#047857',     # integers
+# ----------------------------------------------------------------------
+# 1. Register Local Unicode TrueType Fonts
+# ----------------------------------------------------------------------
+def init_fonts():
+    win_fonts = {
+        "DocSans": r"C:\Windows\Fonts\arial.ttf",
+        "DocSans-Bold": r"C:\Windows\Fonts\arialbd.ttf",
+        "DocMono": r"C:\Windows\Fonts\consola.ttf",
+        "DocMono-Bold": r"C:\Windows\Fonts\consolab.ttf",
     }
+    
+    if all(os.path.exists(p) for p in win_fonts.values()):
+        for name, path in win_fonts.items():
+            pdfmetrics.registerFont(TTFont(name, path))
+        return "DocSans", "DocSans-Bold", "DocMono", "DocMono-Bold"
+    
+    return "Helvetica", "Helvetica-Bold", "Courier", "Courier-Bold"
 
-    lines = code_text.strip('\n').split('\n')
-    highlighted_lines = []
+SANS, SANS_BOLD, MONO, MONO_BOLD = init_fonts()
 
-    for line in lines:
-        if not line:
-            highlighted_lines.append('&nbsp;')
-            continue
-
-        raw_tokens = lexer.get_tokens(line)
-        line_parts = []
-        for ttype, val in raw_tokens:
-            tok_key = str(ttype).split('.')[-1].lower()
-            tok_parent = str(ttype).split('.')[-2].lower() if len(str(ttype).split('.')) > 1 else ''
-            target_color = color_map.get(tok_key, color_map.get(tok_parent, None))
-            
-            clean_val = val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            clean_val = clean_val.replace(' ', '&nbsp;')
-            
-            if target_color:
-                line_parts.append(f'<font color="{target_color}">{clean_val}</font>')
-            else:
-                line_parts.append(clean_val)
-                
-        highlighted_lines.append("".join(line_parts))
-
-    return "<br/>".join(highlighted_lines)
-
-
-class NumberedCanvas(canvas.Canvas):
+# ----------------------------------------------------------------------
+# 2. Numbered Canvas with Unified Header
+# ----------------------------------------------------------------------
+class GuideCanvas(canvas.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
@@ -107,388 +45,434 @@ class NumberedCanvas(canvas.Canvas):
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
-            self.draw_page_decorations(num_pages)
+            self.draw_decorations(num_pages)
             super().showPage()
         super().save()
 
-    def draw_page_decorations(self, page_count):
+    def draw_decorations(self, page_count):
         self.saveState()
-        self.setFont("Helvetica", 8)
-        self.setFillColor(colors.HexColor("#64748B"))
+        self.setFont(SANS, 8)
+        self.setFillColor(colors.HexColor("#4B5563"))
         
-        # Header
-        self.setStrokeColor(colors.HexColor("#E2E8F0"))
-        self.setLineWidth(0.5)
-        self.line(40, 755, 572, 755)
-        self.drawString(40, 760, "Stage 1.4.2.5 — Choosing an OCR Approach & Running OCR")
+        # Header on every page
+        self.drawString(36, 760, DOCUMENT_NAME)
+        self.setStrokeColor(colors.HexColor("#CBD5E1"))
+        self.setLineWidth(0.75)
+        self.line(36, 752, 576, 752)
         
-        # Footer
-        self.line(40, 42, 572, 42)
+        # Bottom Footer
         page_str = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(572, 30, page_str)
+        self.drawRightString(576, 25, page_str)
         self.restoreState()
 
-
-def build_pdf(filename="Stage_1_4_2_5_OCR_Implementation.pdf"):
-    mono_font = register_unicode_mono_font()
-
+# ----------------------------------------------------------------------
+# 3. PDF Generator
+# ----------------------------------------------------------------------
+def generate_exact_pdf():
+    output_filename = f"{DOCUMENT_NAME}.pdf"
+    
     doc = SimpleDocTemplate(
-        filename,
+        output_filename,
         pagesize=letter,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=55,
-        bottomMargin=55
+        leftMargin=36,
+        rightMargin=36,
+        topMargin=46,
+        bottomMargin=42
     )
 
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontName='Helvetica-Bold',
+    doc_title_style = ParagraphStyle(
+        'MainTitle',
+        fontName=SANS_BOLD,
         fontSize=15,
         leading=19,
-        textColor=colors.HexColor('#0F172A'),
-        spaceAfter=10
+        textColor=colors.HexColor("#0F766E"),
+        spaceAfter=3
     )
-
-    h2_style = ParagraphStyle(
-        'DocH2',
-        parent=styles['Heading2'],
-        fontName='Helvetica-Bold',
-        fontSize=10.5,
+    doc_sub_style = ParagraphStyle(
+        'SubTitle',
+        fontName=SANS,
+        fontSize=10,
         leading=14,
-        textColor=colors.HexColor('#1E293B'),
-        keepWithNext=True
+        textColor=colors.HexColor("#0F766E"),
+        spaceAfter=8
     )
-
-    body_style = ParagraphStyle(
-        'DocBody',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=9,
+    step_heading_style = ParagraphStyle(
+        'StepHeading',
+        fontName=SANS_BOLD,
+        fontSize=10,
         leading=13,
-        textColor=colors.HexColor('#334155'),
-        spaceBefore=2,
-        spaceAfter=4
+        textColor=colors.HexColor("#1E293B"),
+        spaceBefore=7,
+        spaceAfter=3
+    )
+    body_style = ParagraphStyle(
+        'BodyDark',
+        fontName=SANS,
+        fontSize=8.5,
+        leading=12,
+        textColor=colors.HexColor("#1F2937"),
+        spaceAfter=3
+    )
+    badge_style = ParagraphStyle(
+        'Badge',
+        fontName=SANS_BOLD,
+        fontSize=7,
+        leading=9,
+        textColor=colors.HexColor("#0F766E")
+    )
+    code_text_style = ParagraphStyle(
+        'CodeText',
+        fontName=MONO,
+        fontSize=7.5,
+        leading=10.5,
+        textColor=colors.HexColor("#0F172A")
+    )
+    table_cell_style = ParagraphStyle(
+        'TblCell',
+        fontName=SANS,
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor("#1F2937")
+    )
+    table_hdr_style = ParagraphStyle(
+        'TblHdr',
+        fontName=SANS_BOLD,
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor("#0F766E")
     )
 
-    code_paragraph_style = ParagraphStyle(
-        'LineByLineHighlightedCode',
-        fontName=mono_font,
-        fontSize=7.2,
-        leading=10.2,
-        textColor=colors.HexColor('#1E293B')
-    )
+    def render_card(badge_label, content_text):
+        b_p = Paragraph(f"<b>{badge_label.upper()}</b>", badge_style)
+        
+        formatted = (
+            content_text.strip()
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('\n', '<br/>')
+            .replace(' ', '&nbsp;')
+        )
+        c_p = Paragraph(formatted, code_text_style)
+        
+        t = Table([[b_p], [Spacer(1, 2)], [c_p]], colWidths=[540])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F0FDFA")),
+            ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor("#99F6E4")),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 7),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 7),
+        ]))
+        return t
 
-    diagram_style = ParagraphStyle(
-        'DiagramPreformatted',
-        fontName=mono_font,
-        fontSize=7.2,
-        leading=8.8,
-        textColor=colors.HexColor('#0F766E')
-    )
-
+    # Initialize story list
     story = []
 
-    def make_heading(text):
-        p = Paragraph(text, h2_style)
-        t = Table([[p]], colWidths=[532])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
-            ('LINELEFT', (0, 0), (0, -1), 3, colors.HexColor('#2563EB')),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ]))
-        return t
+    # Title Banner
+    story.append(Paragraph(DOCUMENT_NAME, doc_title_style))
+    story.append(Paragraph("Document Understanding and Reading Order Integrity for RAG", doc_sub_style))
 
-    def make_code_box(content, is_python=True, tag="PYTHON"):
-        if is_python:
-            is_ps = (tag == "POWERSHELL" or tag == "TERMINAL")
-            html_content = highlight_code_strict_lines(content, is_powershell=is_ps)
-            element = Paragraph(html_content, code_paragraph_style)
-            bg = colors.HexColor('#F8FAFC')
-            border_color = colors.HexColor('#CBD5E1')
-            tag_color = colors.HexColor('#2563EB')
-        else:
-            element = Preformatted(content, diagram_style)
-            bg = colors.HexColor('#F0FDFA')
-            border_color = colors.HexColor('#99F6E4')
-            tag_color = colors.HexColor('#0D9488')
+    # Objective
+    story.append(Paragraph("Objective", step_heading_style))
+    story.append(Paragraph("We already learned:", body_style))
+    story.append(Paragraph("Stage 1.4.2.5.1 — Basic OCR", body_style))
+    story.append(render_card("BASIC OCR PIPELINE", "Image\n  ↓\nOCR\n  ↓\nText"))
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("Then:", body_style))
+    story.append(Paragraph("Stage 1.4.2.5.2 — Docling for Scanned PDFs", body_style))
+    story.append(render_card("DOCLING PIPELINE", "Scanned PDF\n     ↓\n  Docling\n     ↓\nDoclingDocument\n     ↓\nMarkdown / structured representation"))
+    story.append(Spacer(1, 3))
 
-        header_p = Paragraph(f"<b><font size=6 color='{tag_color}'>{tag}</font></b>", body_style)
-        
-        t = Table([[header_p], [element]], colWidths=[532])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), bg),
-            ('BOX', (0, 0), (-1, -1), 0.5, border_color),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, border_color),
-            ('TOPPADDING', (0, 0), (-1, 0), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 1), (-1, 1), 4),
-            ('BOTTOMPADDING', (0, 1), (-1, 1), 5),
-        ]))
-        return t
+    story.append(Paragraph("Now we're asking a deeper question:", body_style))
+    story.append(Paragraph("Can Docling understand the layout of a document and determine the correct logical reading order?", body_style))
+    story.append(Spacer(1, 3))
 
-    content_blocks = [
-        ("title", "Stage 1.4.2.5 — Choosing an OCR Approach and Running OCR"),
-        ("body", "At this point, we already established an important distinction: <b>A scanned PDF page is essentially an image.</b><br/>So normal PDF text extractors (such as PyPDFLoader or PyMuPDFLoader) return little or no meaningful text.<br/>Our goal now is:"),
-        ("diagram", """scanned PDF
-    ↓
-scanned_page.png
-    ↓
-OCR Engine
-    ↓
-recognized text
-    ↓
-LangChain Document
-    ↓
-later → chunking → embedding → vector DB → retrieval""", "TARGET PIPELINE"),
-        ("body", "For this learning stage, we start with <b>Tesseract OCR</b>."),
+    # Step 1
+    story.append(Paragraph("Step 1 — Understand the Problem", step_heading_style))
+    story.append(Paragraph("Consider a document like this:", body_style))
+    box_diag = (
+        "┌──────────────────────┬──────────────────────┐\n"
+        "│ Heading A            │ Heading B            │\n"
+        "│                      │                      │\n"
+        "│ Paragraph A1         │ Paragraph B1         │\n"
+        "│ Paragraph A2         │ Paragraph B2         │\n"
+        "│                      │                      │\n"
+        "└──────────────────────┴──────────────────────┘"
+    )
+    story.append(render_card("VISUAL LAYOUT", box_diag))
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("A naive text extractor might produce:", body_style))
+    naive_txt = "Heading A\nHeading B\nParagraph A1\nParagraph B1\nParagraph A2\nParagraph B2"
+    story.append(render_card("NAIVE EXTRACTION", naive_txt))
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("But the logical reading order might be:", body_style))
+    logical_txt = "Heading A\nParagraph A1\nParagraph A2\n\nHeading B\nParagraph B1\nParagraph B2"
+    story.append(render_card("LOGICAL READING ORDER", logical_txt))
+    story.append(Paragraph("That's the problem layout and reading-order analysis tries to solve.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "1. Why Tesseract for this stage?"),
-        ("body", "There are several OCR approaches available across the ecosystem:"),
-        ("table_text", [
-            ["OCR Approach", "Type", "Best Suited For"],
-            ["Tesseract", "Open source", "Learning OCR fundamentals, local processing"],
-            ["EasyOCR", "Open source", "Multilingual / general image OCR"],
-            ["PaddleOCR", "Open source", "Stronger document / layout OCR"],
-            ["Docling", "Open source", "Document understanding + structured extraction"],
-            ["Azure Doc Intelligence", "Cloud", "Enterprise document processing"],
-            ["Google Document AI", "Cloud", "Enterprise document understanding"],
-            ["AWS Textract", "Cloud", "Enterprise document extraction"],
-            ["OpenAI / Gemini Vision", "Closed / API", "Vision + reasoning + extraction"]
-        ]),
-        ("body", "We shouldn't jump to Docling or cloud OCR yet. The purpose of Stage 1.4.2.5 is to understand the fundamental mechanism: <i>How do we turn pixels from a scanned page into text that can enter our RAG pipeline?</i> Tesseract is open-source and provides Windows installers via the UB Mannheim distribution."),
+    # Step 2
+    story.append(Paragraph("Step 2 — Understand Why This Matters to RAG", step_heading_style))
+    story.append(Paragraph("This is extremely important. Suppose a PDF contains:", body_style))
+    col_diag = "Column 1                  Column 2\n\nAzure Event Hubs          Azure Data Explorer\n\nEvent ingestion           Analytics\n\nHigh-volume events        Query processing"
+    story.append(render_card("MULTI-COLUMN INPUT", col_diag))
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("If the extraction order is wrong, we might create a chunk such as:", body_style))
+    corrupt_chunk = "Azure Event Hubs\nAzure Data Explorer\nEvent ingestion\nAnalytics\nHigh-volume events\nQuery processing"
+    story.append(render_card("CORRUPTED EXTRACTION", corrupt_chunk))
+    story.append(Paragraph("The text exists, but its relationships have been damaged. That can negatively affect:", body_style))
+    story.append(render_card("RAG DEGRADATION FLOW", "Chunking\n   ↓\nEmbedding\n   ↓\nRetrieval\n   ↓\nLLM context"))
+    story.append(Paragraph("Therefore:\n\nGood RAG begins with good document understanding.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "2. Important: Tesseract has TWO parts"),
-        ("body", "When we use <code>import pytesseract</code>, we have not installed the OCR engine itself. There are two distinct components:"),
-        ("diagram", """Windows
-│
-├── Tesseract OCR Engine
-│       ↓
-│   actual OCR program (.exe binary)
-│
-└── Python
-        ↓
-    pytesseract
-        ↓
-    Python wrapper that communicates with Tesseract""", "TWO-PART ARCHITECTURE"),
-        ("body", "<b>Component 1:</b> Tesseract executable engine.<br/><b>Component 2:</b> <code>pytesseract</code> Python wrapper."),
+    # Step 3
+    story.append(Paragraph("Step 3 — Locate the Sample PDF", step_heading_style))
+    story.append(Paragraph("Download the sample PDF above and place it somewhere accessible from your notebook. For example:", body_style))
+    tree_path = "rag-learning/\n│\n├── notebooks/\n│\n├── data/\n│   └── docling_layout_reading_order_sample.pdf\n│\n└── ..."
+    story.append(render_card("DIRECTORY STRUCTURE", tree_path))
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("Then:", body_style))
+    code_s3 = 'from pathlib import Path\n\npdf_path = Path(\n    "../../data/docling_layout_reading_order_sample.pdf"\n)\n\nprint(pdf_path.exists())\nprint(pdf_path)'
+    story.append(render_card("PYTHON", code_s3))
+    story.append(Paragraph("Adjust the path according to where you saved it. We want:\n\nTrue", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "3. OCR setup on your Windows 10 machine"),
-        ("body", "Because you are using Windows 10, VS Code, Notebook, and <code>uv</code>, we'll keep the setup consistent with your existing environment.<br/><br/><b>Step 3.1 — Install Tesseract itself:</b><br/>Download/install the Windows version from UB Mannheim. During installation, make sure English language data (<code>eng</code>) is selected.<br/>Typical installation path: <code>C:\\Program Files\\Tesseract-OCR\\tesseract.exe</code>"),
+    # Step 4
+    story.append(Paragraph("Step 4 — Check Your Docling Version", step_heading_style))
+    story.append(Paragraph("We're using your installed:\n\nDocling 2.120.3\n\nLet's confirm from the notebook:", body_style))
+    code_s4 = 'import importlib.metadata\n\nprint(importlib.metadata.version("docling"))'
+    story.append(render_card("PYTHON", code_s4))
+    story.append(Paragraph("Expected:\n\n2.120.3", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "4. Verify Tesseract from PowerShell"),
-        ("body", "After installation, close and reopen VS Code/PowerShell to refresh PATH environment variables. Run:"),
-        ("code", "tesseract --version", "POWERSHELL"),
-        ("body", "Expected output:"),
-        ("diagram", "tesseract 5.x.x\n leptonica-...\n ...", "OUTPUT"),
-        ("body", "Then check available language models:"),
-        ("code", "tesseract --list-langs", "POWERSHELL"),
-        ("diagram", "List of available languages in \"...\"\neng\nosd", "OUTPUT"),
+    # Step 5
+    story.append(Paragraph("Step 5 — Create the Document Converter", step_heading_style))
+    story.append(Paragraph("Use the same approach from Stage 1.4.2.5.2:", body_style))
+    code_s5 = "from docling.document_converter import DocumentConverter\n\nconverter = DocumentConverter()"
+    story.append(render_card("PYTHON", code_s5))
+    story.append(Spacer(1, 3))
 
-        ("h2", "5. What if PowerShell says tesseract is not recognized?"),
-        ("body", "This means Tesseract is installed but Windows cannot locate it in PATH. Test the absolute path first:"),
-        ("code", '& "C:\\Program Files\\Tesseract-OCR\\tesseract.exe" --version', "POWERSHELL"),
-        ("body", "If that works, add <code>C:\\Program Files\\Tesseract-OCR</code> to your Windows system/user PATH."),
+    # Step 6
+    story.append(Paragraph("Step 6 — Convert the Sample PDF", step_heading_style))
+    story.append(Paragraph("Run:", body_style))
+    code_s6 = "result = converter.convert(pdf_path)\n\nprint(result.status)"
+    story.append(render_card("PYTHON", code_s6))
+    story.append(Paragraph("We want a successful conversion.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "6. Now install the Python wrapper using UV"),
-        ("body", "Go to your existing RAG project root and add the package:"),
-        ("code", """cd <your-rag-learning-project>
-uv add pytesseract""", "POWERSHELL"),
-        ("body", "<code>uv add</code> updates <code>pyproject.toml</code>, lockfile, and virtual environment automatically."),
-        ("diagram", """uv                  → manages Python dependencies (pytesseract)
-Windows Installer   → installs Tesseract OCR binary engine""", "DEPENDENCY SEPARATION"),
+    # Step 7
+    story.append(Paragraph("Step 7 — Get the DoclingDocument", step_heading_style))
+    code_s7 = "doc = result.document\nprint(type(doc))"
+    story.append(render_card("PYTHON", code_s7))
+    story.append(Paragraph("You should get a DoclingDocument.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "7. Verify pytesseract in your notebook"),
-        ("body", "Create a new cell in your Stage 1.4.2.5 notebook and run:"),
-        ("code", """import pytesseract
+    # Step 8
+    story.append(Paragraph("Step 8 — Export to Markdown", step_heading_style))
+    story.append(Paragraph("This is our first way to observe the result:", body_style))
+    code_s8 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
+    story.append(render_card("PYTHON", code_s8))
+    story.append(Paragraph("What are we looking for? Look carefully at: Heading order, Paragraph order, Two-column content, Table position, Caption position, Page transitions.", body_style))
+    story.append(Paragraph("Don't just ask:\n\"Did Docling extract the words?\"\nAsk:\n\"Did Docling preserve the logical structure?\"\nThat's the purpose of this stage.", body_style))
+    story.append(Spacer(1, 3))
 
-print(pytesseract.get_tesseract_version())
-print(pytesseract.get_languages())""", "PYTHON"),
-        ("body", "Output should reflect your installed engine version and <code>['eng', 'osd', ...]</code>."),
+    # Step 9
+    story.append(Paragraph("Step 9 — Inspect the Page Structure", step_heading_style))
+    story.append(Paragraph("Now we want to go deeper than Markdown. The DoclingDocument contains structured information about document elements. Let's first inspect what is available:", body_style))
+    code_s9 = 'print(type(doc))\n[m for m in dir(doc) if not m.startswith("_")]'
+    story.append(render_card("PYTHON", code_s9))
+    story.append(Paragraph("This is useful because we're working specifically with Docling 2.120.3, rather than blindly copying APIs from another version.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "8. Verify our actual scanned_page.png"),
-        ("body", "Load the image produced from the previous experiment:"),
-        ("code", """from PIL import Image
+    # Step 10
+    story.append(Paragraph("Step 10 — Inspect Document Items", step_heading_style))
+    story.append(Paragraph("For this stage, one particularly useful concept is the document's items. Try:", body_style))
+    code_s10 = "print(doc.body)\nprint(doc.__dict__.keys())"
+    story.append(render_card("PYTHON", code_s10))
+    story.append(Paragraph("We're looking for how Docling 2.120.3 represents the document internally. Depending on the exact object structure exposed by your installed version, we'll inspect the relevant collections rather than assuming a particular API.", body_style))
+    story.append(Spacer(1, 3))
 
-image = Image.open("scanned_page.png")
+    # Step 11
+    story.append(Paragraph("Step 11 — Why We Are Inspecting the Structure", step_heading_style))
+    story.append(Paragraph("Imagine Docling internally recognizes something like:", body_style))
+    tree_p1 = "Page 1\n│\n├── Heading\n├── Paragraph\n├── Paragraph\n├── Heading\n├── Paragraph\n├── Table\n└── Caption"
+    story.append(render_card("DOCUMENT STRUCTURE", tree_p1))
+    story.append(Paragraph("That's much more useful than:\none giant string\nbecause later we can make intelligent decisions about chunking. For example:", body_style))
+    story.append(render_card("SEMANTIC CHUNKING", "Heading\n   +\nParagraphs\n   ↓\none semantic chunk\nrather than blindly doing:\nevery 500 characters"))
+    story.append(Spacer(1, 3))
 
-print(image.size)
-print(image.mode)""", "PYTHON"),
-        ("body", "Typical output: <code>(1700, 2200), RGB</code>."),
+    # Step 12
+    story.append(Paragraph("Step 12 — Inspect the Markdown More Carefully", step_heading_style))
+    story.append(Paragraph("Let's print the first page's extracted Markdown separately if possible, but first simply inspect:", body_style))
+    code_s12 = "print(markdown_text[:5000])"
+    story.append(render_card("PYTHON", code_s12))
+    story.append(Paragraph("Look for something like:", body_style))
+    md_sample = "# Azure Event Processing Architecture\n\n## 1. Overview\n...\n## 2. Processing Stages\n...\n| Stage | Component | Purpose |\n|---|---|---|\n..."
+    story.append(render_card("MARKDOWN PREVIEW", md_sample))
+    story.append(Paragraph("The exact result will depend on how Docling interprets the generated PDF.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "9. Look at the scanned page before OCR"),
-        ("body", "Inspect the visual frame:"),
-        ("code", "display(image)", "PYTHON"),
-        ("body", "Remember: The PDF viewer sees structured text, but the OCR engine sees only raw pixel color arrays."),
+    # Step 13
+    story.append(Paragraph("Step 13 — Focus on Reading Order", step_heading_style))
+    story.append(Paragraph("Our sample contains this logical sequence:", body_style))
+    seq_txt = "1. Overview\n\n2. Ingestion Layer\n\n3. Analytics Layer\n\n4. Processing Stages\n\n5. Important Design Considerations"
+    story.append(render_card("LOGICAL SEQUENCE", seq_txt))
+    story.append(Paragraph("We intentionally designed the document so that the visual layout isn't simply a single linear stream. The question we're testing is:\n\nVisual position\n      ≠\nLogical reading order\n\nA document-understanding system needs to infer the latter.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "10. Run our first OCR"),
-        ("body", "Execute the character recognition:"),
-        ("code", """import pytesseract
+    # Step 14
+    story.append(Paragraph("Step 14 — Compare with a Naive Text Extraction Approach", step_heading_style))
+    story.append(Paragraph("This comparison is useful.", body_style))
+    comp_naive = "Naive PDF extraction\nPDF\n ↓\nText extraction\n ↓\nString\nPotential problem:\nWrong ordering\nLost relationships\nLost layout\nLost table structure"
+    comp_docling = "Docling\nPDF\n ↓\nDocument understanding\n ↓\nLayout\n ↓\nReading order\n ↓\nStructured document\nPotentially:\nHeading\n   ↓\nParagraph\n   ↓\nParagraph\n   ↓\nTable\n   ↓\nCaption"
+    story.append(render_card("NAIVE PDF EXTRACTION", comp_naive))
+    story.append(Spacer(1, 2))
+    story.append(render_card("DOCLING EXTRACTION", comp_docling))
+    story.append(Paragraph("That's why we're learning Docling.", body_style))
+    story.append(Spacer(1, 3))
 
-ocr_text = pytesseract.image_to_string(
-    image,
-    lang="eng"
-)
+    # Step 15
+    story.append(Paragraph("Step 15 — Understand Reading Order in RAG", step_heading_style))
+    story.append(Paragraph("Suppose our document says: Azure Event Hubs and underneath it: Event ingestion platform. Then in another column: Azure Data Explorer with: Analytics platform. If our parser mixes them up, the resulting embedding might represent a distorted relationship. Instead, we want:", body_style))
+    correct_rel = "Azure Event Hubs\n    ↓\nEvent ingestion platform\nand:\nAzure Data Explorer\n    ↓\nAnalytics platform"
+    story.append(render_card("RELATIONSHIPS", correct_rel))
+    story.append(Paragraph("This produces much better semantic units for subsequent chunking.", body_style))
+    story.append(Spacer(1, 3))
 
-print(ocr_text)""", "PYTHON"),
-        ("diagram", """scanned_page.png → Image → pytesseract → Tesseract OCR → recognized text""", "FIRST OCR RUN"),
+    # Step 16
+    story.append(Paragraph("Step 16 — Understand the Relationship with Chunking", step_heading_style))
+    story.append(Paragraph("This is one of the most important lessons from this stage. We previously learned that chunking strategy matters. But now notice:", body_style))
+    chunk_flow = "Document Understanding\n        ↓\nLayout\n        ↓\nReading Order\n        ↓\nSemantic Structure\n        ↓\nChunking"
+    story.append(render_card("INGESTION FLOW", chunk_flow))
+    story.append(Paragraph("Therefore: You shouldn't think of chunking as an isolated operation. The quality of your chunks depends partly on how well you understand the source document. This is why modern RAG ingestion pipelines increasingly use document-understanding frameworks.", body_style))
+    story.append(Spacer(1, 3))
 
-        ("h2", "11. Save the OCR result"),
-        ("body", "Preserve the output text to disk:"),
-        ("code", """ocr_output_path = "scanned_page_ocr.txt"
-
-with open(ocr_output_path, "w", encoding="utf-8") as f:
-    f.write(ocr_text)
-
-print(f"OCR output saved to: {ocr_output_path}")""", "PYTHON"),
-        ("body", "This creates a clear visual transformation: <code>scanned_page.png</code> (IMAGE) → <code>scanned_page_ocr.txt</code> (TEXT)."),
-
-        ("h2", "12. Now connect OCR to LangChain"),
-        ("body", "OCR is an ingestion capability. Here is how it completes the RAG flow:"),
-        ("diagram", """                 Scanned PDF
-                      │
-                      ▼
-              PDF page image
-                      │
-                      ▼
-                OCR Engine
-                      │
-                      ▼
-                  OCR text
-                      │
-                      ▼
-           LangChain Document
-                      │
-                      ▼
-                  Chunking
-                      │
-                      ▼
-                 Embedding
-                      │
-                      ▼
-                Vector Store
-                      │
-                      ▼
-                 Retrieval
-                      │
-                      ▼
-                     LLM""", "INGESTION INTEGRATION"),
-        ("body", "<b>Without OCR:</b> Scanned PDF → No text → No chunks → Retrieval fails.<br/><b>With OCR:</b> Scanned PDF → OCR Text → Chunks → Embeddings → Vector DB → Accurate Retrieval."),
-
-        ("h2", "13. Create a LangChain Document"),
-        ("body", "Convert the recognized text into a standard LangChain Document object:"),
-        ("code", """from langchain_core.documents import Document
-
-ocr_document = Document(
-    page_content=ocr_text,
-    metadata={
-        "source": "scanned_page.png",
-        "document_type": "scanned_pdf_page",
-        "ocr": True,
-        "ocr_engine": "tesseract",
-        "language": "eng"
-    }
-)
-
-print(ocr_document)
-print(ocr_document.page_content)""", "PYTHON"),
-
-        ("h2", "14. Why metadata becomes especially important here"),
-        ("body", "Preserving provenance (<code>ocr: True</code>) allows downstream debugging when tracking citation quality across multi-format corpora:"),
-        ("diagram", """LLM answer
-   ↓
-retrieved chunk
-   ↓
-OCR-generated chunk (metadata: ocr=True, page=12)
-   ↓
-employee_handbook.pdf""", "PROVENANCE TRACING"),
-
-        ("h2", "15. One very important observation"),
-        ("body", "OCR is prone to minor character hallucinations (e.g. <code>Azure Event Hub</code> → <code>Azure Event Huh</code>, or <code>Data Explorer</code> → <code>Data ExpIorer</code>).<br/>Because OCR errors degrade chunks, embeddings, and retrieval accuracy, production systems use preprocessing and quality evaluation."),
-
-        ("h2", "16. Our first OCR experiment should be deliberately simple"),
-        ("body", "Establish the baseline with raw <code>image_to_string()</code> first. Inspect word accuracy, line preservation, and table integrity before introducing advanced pre-processing filters (grayscale, noise removal, binarization, deskewing)."),
-
-        ("h2", "17. Also understand what Tesseract is NOT doing"),
-        ("body", "Tesseract detects characters and words, but does not parse semantic relationships (e.g., mapping column keys to row values in complex tabular schemas). Advanced document understanding uses tools like PaddleOCR, Docling, Azure Document Intelligence, Google Document AI, or AWS Textract."),
-
-        ("h2", "18. Your Stage 1.4.2.5 learning target"),
-        ("diagram", """Stage 1.4.2.5
-│
-├── Understand OCR
-├── Choose Tesseract
-├── Install Tesseract on Windows
-├── Install pytesseract using UV
-├── Verify Tesseract
-├── Load scanned_page.png
-├── Run first OCR
-├── Inspect OCR output
-├── Save OCR text
-└── Convert OCR output into LangChain Document""", "TARGET CHECKLIST"),
-        ("body", "The upcoming progression:"),
-        ("diagram", """Stage 1.4.2.5: Basic OCR
-      ↓
-Stage 1.4.2.6: OCR preprocessing
-      ↓
-Stage 1.4.2.7: OCR quality evaluation
-      ↓
-Stage 1.4.2.8: OCR + PDF page pipeline
-      ↓
-Stage 1.4.2.9: OCR → LangChain Documents""", "ROADMAP"),
-
-        ("h2", "One thing to do first"),
-        ("body", "Before writing notebook code, verify your CLI environment:"),
-        ("code", """tesseract --version
-tesseract --list-langs
-uv add pytesseract""", "POWERSHELL"),
-        ("body", "Once these checks succeed, your environment is ready to execute OCR against <code>scanned_page.png</code> cell by cell.")
+    # Step 17
+    story.append(Paragraph("Step 17 — Inspect the Table", step_heading_style))
+    story.append(Paragraph("Our sample PDF contains a table:\n\nStage | Component | Purpose", body_style))
+    tbl_raw = [
+        [Paragraph("Stage", table_hdr_style), Paragraph("Component", table_hdr_style), Paragraph("Purpose", table_hdr_style)],
+        [Paragraph("1", table_cell_style), Paragraph("Event Producer", table_cell_style), Paragraph("Publishes raw event streaming payload", table_cell_style)],
+        [Paragraph("2", table_cell_style), Paragraph("Azure Event Hubs", table_cell_style), Paragraph("Ingests high-throughput data streams", table_cell_style)],
+        [Paragraph("3", table_cell_style), Paragraph("Azure Data Explorer", table_cell_style), Paragraph("Low-latency real-time analytics query engine", table_cell_style)],
     ]
+    tbl_flowable = Table(tbl_raw, colWidths=[45, 155, 340])
+    tbl_flowable.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#CCFBF1")),
+        ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor("#99F6E4")),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(tbl_flowable)
+    story.append(Spacer(1, 3))
+    
+    story.append(Paragraph("After conversion:", body_style))
+    code_s17 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
+    story.append(render_card("PYTHON", code_s17))
+    story.append(Paragraph("Look for a Markdown table. If Docling preserves it as:\n| Stage | Component | Purpose |\n|---|---|---|\n| 1 | Event Producer | ... |\n| 2 | Azure Event Hubs | ... |\nthat's an important observation.", body_style))
+    story.append(Paragraph("Compare that with basic OCR, which could produce:", body_style))
+    ocr_raw_table = "Stage Component Purpose\n1 Event Producer Publishes...\n2 Azure Event Hubs Ingests..."
+    story.append(render_card("UNSTRUCTURED OCR OUTPUT", ocr_raw_table))
+    story.append(Paragraph("The second output contains the words but may have lost the explicit table relationships.", body_style))
+    story.append(Spacer(1, 3))
 
-    for item in content_blocks:
-        b_type = item[0]
-        if b_type == "title":
-            story.append(Paragraph(item[1], title_style))
-            story.append(Spacer(1, 3))
-        elif b_type == "h2":
-            story.append(Spacer(1, 4))
-            story.append(make_heading(item[1]))
-            story.append(Spacer(1, 3))
-        elif b_type == "body":
-            story.append(Paragraph(item[1], body_style))
-            story.append(Spacer(1, 2))
-        elif b_type == "code":
-            tag = item[2] if len(item) > 2 else "PYTHON"
-            story.append(make_code_box(item[1], is_python=True, tag=tag))
-            story.append(Spacer(1, 3))
-        elif b_type == "diagram":
-            tag = item[2] if len(item) > 2 else "STRUCTURE"
-            story.append(make_code_box(item[1], is_python=False, tag=tag))
-            story.append(Spacer(1, 3))
-        elif b_type == "table_text":
-            data = item[1]
-            t = Table(data, colWidths=[130, 95, 307][:len(data[0])])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F1F5F9')),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0F172A')),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                ('TOPPADDING', (0, 0), (-1, -1), 3),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ]))
-            story.append(t)
-            story.append(Spacer(1, 3))
+    # Step 18 (Exact Centered Axis Layout)
+    story.append(Paragraph("Step 18 — The Architecture We Are Building Toward", step_heading_style))
+    story.append(Paragraph("Our ingestion architecture is gradually becoming:", body_style))
+    arch_full = (
+        "                    Enterprise PDF\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                       Docling\n"
+        "                          │\n"
+        "           ┌──────────────┼──────────────┐\n"
+        "           │              │              │\n"
+        "           ▼              ▼              ▼\n"
+        "          OCR           Layout         Tables\n"
+        "           │              │              │\n"
+        "           └──────────────┼──────────────┘\n"
+        "                          ▼\n"
+        "                  DoclingDocument\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                    Reading Order\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                  Structured Content\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                       Chunking\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                      Embedding\n"
+        "                          │\n"
+        "                          ▼\n"
+        "                     Vector Store"
+    )
+    story.append(render_card("INGESTION ARCHITECTURE", arch_full))
+    story.append(Paragraph("This is the conceptual reason we're doing this stage.", body_style))
+    story.append(Spacer(1, 3))
 
-    doc.build(story, canvasmaker=NumberedCanvas)
-    print(f"Successfully generated PDF: '{filename}'")
+    # Step 19
+    story.append(Paragraph("Step 19 — What We Are NOT Doing Yet", step_heading_style))
+    story.append(Paragraph("Don't worry about: OCR engine tuning, Tesseract configuration, image preprocessing, formula enrichment, picture description, multimodal embeddings, table-specific chunking, LangChain integration. Those are separate concerns.", body_style))
+    story.append(Paragraph("Our question right now is simply:\nCan Docling correctly understand the spatial organization and logical reading order of our document?", body_style))
+    story.append(Spacer(1, 3))
+
+    # Step 20
+    story.append(Paragraph("Step 20 — Your Hands-On Experiment", step_heading_style))
+    story.append(Paragraph("Run these cells in order.", body_style))
+    
+    code_s20_c1 = "from pathlib import Path\nfrom docling.document_converter import DocumentConverter"
+    story.append(render_card("CELL 1", code_s20_c1))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c2 = 'pdf_path = Path(\n    "path/to/docling_layout_reading_order_sample.pdf"\n)\n\nprint("Exists:", pdf_path.exists())'
+    story.append(render_card("CELL 2", code_s20_c2))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c3 = "converter = DocumentConverter()"
+    story.append(render_card("CELL 3", code_s20_c3))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c4 = "result = converter.convert(pdf_path)\n\nprint(\"Status:\", result.status)"
+    story.append(render_card("CELL 4", code_s20_c4))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c5 = "doc = result.document\n\nprint(type(doc))"
+    story.append(render_card("CELL 5", code_s20_c5))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c6 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
+    story.append(render_card("CELL 6", code_s20_c6))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c7 = "print(doc.__dict__.keys())"
+    story.append(render_card("CELL 7", code_s20_c7))
+    story.append(Spacer(1, 2))
+    
+    code_s20_c8 = 'print([m for m in dir(doc) if not m.startswith("_")])'
+    story.append(render_card("CELL 8", code_s20_c8))
+    story.append(Spacer(1, 3))
+
+    # Observation Block
+    story.append(Paragraph("The key thing I want you to observe", step_heading_style))
+    story.append(Paragraph("Don't worry yet about writing a lot of code. After running the conversion, look at the Markdown output and compare it against the visual PDF. We're testing three things:", body_style))
+    obs_flow = "1. Did Docling recognize the headings?\n        ↓\n2. Did it preserve the logical reading order?\n        ↓\n3. Did it preserve the table structure?"
+    story.append(render_card("VERIFICATION CRITERIA", obs_flow))
+    story.append(Paragraph("Once we see your actual output from Docling 2.120.3, we'll inspect the DoclingDocument structure in the next step and learn how Docling represents layout and reading order internally. That is much more valuable than simply calling an export method and moving on.", body_style))
+
+    doc.build(story, canvasmaker=GuideCanvas)
+    print(f"Generated PDF with exact text: {output_filename}")
 
 if __name__ == "__main__":
-    build_pdf()
+    generate_exact_pdf()
