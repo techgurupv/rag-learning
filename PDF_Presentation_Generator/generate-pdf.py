@@ -1,478 +1,958 @@
-import os
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+"""Generates a presentation-grade PDF roadmap using ReportLab with exact text preservation,
+
+TrueType Unicode font support for box-drawing trees, and gold Unicode star
+ratings.
+"""
+
+from pathlib import Path
 from reportlab.lib import colors
-from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.platypus import (
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
-DOCUMENT_NAME = "Stage 1.4.2.5.3 — Docling Layout & Reading Order"
+# --- Register Windows TrueType Fonts (Full Unicode Support) ---
+try:
+  # Monospace for ASCII and Tree diagrams
+  pdfmetrics.registerFont(
+      TTFont("ConsolasRegular", "C:/Windows/Fonts/consola.ttf")
+  )
+  pdfmetrics.registerFont(
+      TTFont("ConsolasBold", "C:/Windows/Fonts/consolab.ttf")
+  )
+  MONO_FONT = "ConsolasRegular"
+except Exception:
+  MONO_FONT = "Courier"
 
-# ----------------------------------------------------------------------
-# 1. Register Local Unicode TrueType Fonts
-# ----------------------------------------------------------------------
-def init_fonts():
-    win_fonts = {
-        "DocSans": r"C:\Windows\Fonts\arial.ttf",
-        "DocSans-Bold": r"C:\Windows\Fonts\arialbd.ttf",
-        "DocMono": r"C:\Windows\Fonts\consola.ttf",
-        "DocMono-Bold": r"C:\Windows\Fonts\consolab.ttf",
+try:
+  # Sans-serif for Body and Headings (Supports Unicode ★ Stars)
+  pdfmetrics.registerFont(TTFont("SegoeUI", "C:/Windows/Fonts/segoeui.ttf"))
+  pdfmetrics.registerFont(TTFont("SegoeUI-Bold", "C:/Windows/Fonts/seguib.ttf"))
+  SANS_REG = "SegoeUI"
+  SANS_BOLD = "SegoeUI-Bold"
+except Exception:
+  try:
+    pdfmetrics.registerFont(TTFont("ArialUnicode", "C:/Windows/Fonts/arial.ttf"))
+    pdfmetrics.registerFont(
+        TTFont("ArialUnicode-Bold", "C:/Windows/Fonts/arialbd.ttf")
+    )
+    SANS_REG = "ArialUnicode"
+    SANS_BOLD = "ArialUnicode-Bold"
+  except Exception:
+    SANS_REG = "Helvetica"
+    SANS_BOLD = "Helvetica-Bold"
+
+# Reusable gold star rating component
+GOLD_STARS = '<font color="#eab308" face="' + SANS_REG + '">★ ★ ★ ★ ★</font>'
+
+
+class NumberedCanvas(canvas.Canvas):
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._saved_page_states = []
+
+  def showPage(self):
+    self._saved_page_states.append(dict(self.__dict__))
+    self._startPage()
+
+  def save(self):
+    num_pages = len(self._saved_page_states)
+    for state in self._saved_page_states:
+      self.__dict__.update(state)
+      self.draw_page_decorations(num_pages)
+      super().showPage()
+    super().save()
+
+  def draw_page_decorations(self, page_count):
+    self.saveState()
+    self.setFont(SANS_BOLD, 8)
+    self.setFillColor(colors.HexColor("#64748b"))
+
+    # Header
+    self.drawString(
+        54, 842 - 36, "STAGE 1.4.2 — INGESTION & DOCUMENT UNDERSTANDING"
+    )
+    self.setStrokeColor(colors.HexColor("#e2e8f0"))
+    self.setLineWidth(0.75)
+    self.line(54, 842 - 42, 595 - 54, 842 - 42)
+
+    # Footer
+    self.setFont(SANS_REG, 8)
+    self.drawString(54, 36, "Docling Architecture & RAG Roadmap")
+    page_str = f"Page {self._pageNumber} of {page_count}"
+    self.drawRightString(595 - 54, 36, page_str)
+    self.restoreState()
+
+
+def create_ascii_table(text: str, available_width: float = 487) -> Table:
+  safe_text = (
+      text.replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace(" ", "&nbsp;")
+      .replace("\n", "<br/>")
+  )
+  style = ParagraphStyle(
+      name="AsciiMonospace",
+      fontName=MONO_FONT,
+      fontSize=8.2,
+      leading=11.5,
+      textColor=colors.HexColor("#0f172a"),
+  )
+  p = Paragraph(safe_text, style)
+  t = Table([[p]], colWidths=[available_width])
+  t.setStyle(
+      TableStyle([
+          ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+          ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+          ("LINELEFT", (0, 0), (0, -1), 3.0, colors.HexColor("#0284c7")),
+          ("TOPPADDING", (0, 0), (-1, -1), 6),
+          ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+          ("LEFTPADDING", (0, 0), (-1, -1), 10),
+          ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+      ])
+  )
+  return t
+
+
+def build_pdf(filename: str = "docling_learning_track.pdf"):
+  doc = SimpleDocTemplate(
+      filename,
+      pagesize=A4,
+      leftMargin=54,
+      rightMargin=54,
+      topMargin=54,
+      bottomMargin=54,
+  )
+
+  title_style = ParagraphStyle(
+      name="DocTitle",
+      fontName=SANS_BOLD,
+      fontSize=18,
+      leading=22,
+      textColor=colors.HexColor("#0f172a"),
+      spaceAfter=12,
+  )
+
+  h2_style = ParagraphStyle(
+      name="H2Heading",
+      fontName=SANS_BOLD,
+      fontSize=12,
+      leading=16,
+      textColor=colors.HexColor("#0369a1"),
+      spaceBefore=14,
+      spaceAfter=6,
+      keepWithNext=True,
+  )
+
+  h3_style = ParagraphStyle(
+      name="H3Heading",
+      fontName=SANS_BOLD,
+      fontSize=10.5,
+      leading=14,
+      textColor=colors.HexColor("#0f172a"),
+      spaceBefore=10,
+      spaceAfter=4,
+      keepWithNext=True,
+  )
+
+  body_style = ParagraphStyle(
+      name="BodyTextCustom",
+      fontName=SANS_REG,
+      fontSize=9.5,
+      leading=13.5,
+      textColor=colors.HexColor("#334155"),
+      spaceAfter=6,
+  )
+
+  story = []
+
+  # Title
+  story.append(
+      Paragraph(
+          "Docling Learning Track &amp; Architecture Roadmap", title_style
+      )
+  )
+
+  # Lead Paragraph
+  story.append(
+      Paragraph(
+          "Yes. In fact, now that you've stepped into Docling, I would slightly"
+          " change our learning path.<br/>Your original OCR path is useful for"
+          " understanding fundamentals, but for a production-grade RAG, you"
+          " don't want to spend the entire ingestion journey building OCR"
+          " pipelines manually. Docling gives us a much broader"
+          " document-understanding capability.",
+          body_style,
+      )
+  )
+  story.append(Paragraph("Think of it this way:", body_style))
+
+  story.append(
+      create_ascii_table("""OCR
+└── "Can I read the text?"
+
+Docling
+└── "Can I understand the document?\"""")
+  )
+  story.append(Spacer(1, 6))
+
+  story.append(
+      Paragraph(
+          "And that is much more interesting for your RAG journey.", body_style
+      )
+  )
+
+  story.append(
+      Paragraph(
+          "What else should we learn from the Docling perspective?", h2_style
+      )
+  )
+  story.append(
+      Paragraph(
+          "I would create a dedicated Docling Learning Track inside Stage"
+          " 1.4.2.<br/>We have already completed:",
+          body_style,
+      )
+  )
+
+  story.append(
+      create_ascii_table("""Stage 1.4.2.5.2
+Docling for Scanned PDFs                         [OK]
+
+Stage 1.4.2.5.3
+Docling Layout & Reading Order                  [OK]""")
+  )
+  story.append(Spacer(1, 6))
+
+  story.append(
+      Paragraph("From here, I recommend learning these areas.", body_style)
+  )
+
+  # 1. Docling Document Model
+  block_1 = [
+      Paragraph(f"1. Docling Document Model {GOLD_STARS}", h3_style),
+      Paragraph(
+          "This should be our next Docling topic.<br/>We need to understand"
+          " what this object actually represents:",
+          body_style,
+      ),
+      create_ascii_table("doc = result.document"),
+      Spacer(1, 4),
+      Paragraph(
+          "Instead of treating it as just another extracted-text object, we'll"
+          " learn:",
+          body_style,
+      ),
+      create_ascii_table("""DoclingDocument
+│
+├── Text
+├── Headings
+├── Paragraphs
+├── Tables
+├── Pictures
+├── Captions
+├── Lists
+├── Pages
+├── Groups
+├── References
+└── Structure"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Most importantly: <b>How does Docling represent the relationship"
+          " between these elements?</b><br/>This is fundamental for advanced"
+          " RAG.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_1))
+
+  # 2. Docling Export Formats
+  block_2 = [
+      Paragraph("2. Docling Export Formats", h3_style),
+      Paragraph(
+          "We've already touched this. We should properly learn:", body_style
+      ),
+      create_ascii_table("""DoclingDocument
+      │
+      ├── Markdown
+      ├── Dictionary
+      ├── JSON representation
+      ├── HTML
+      └── other supported representations"""),
+      Spacer(1, 4),
+      Paragraph(
+          "And understand:<br/><b>When should we use Markdown?</b><br/>For"
+          " example:",
+          body_style,
+      ),
+      create_ascii_table("""PDF
+ ↓
+Docling
+ ↓
+Markdown
+ ↓
+Chunking
+ ↓
+Embedding"""),
+      Spacer(1, 4),
+      Paragraph(
+          "<b>When should we use structured representation?</b><br/>For"
+          " example:",
+          body_style,
+      ),
+      create_ascii_table("""PDF
+ ↓
+Docling
+ ↓
+Structured document
+ ↓
+Element-aware processing
+ ↓
+Chunking"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This distinction becomes very important in production RAG.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_2))
+
+  # 3. Tables Deep Dive
+  block_3 = [
+      Paragraph(f"3. Tables — Deep Dive {GOLD_STARS}", h3_style),
+      Paragraph(
+          "This is a must learn for your RAG project.<br/>We shouldn't stop at:"
+          ' <i>"Docling can extract tables."</i><br/>We should learn:',
+          body_style,
+      ),
+      create_ascii_table("""PDF Table
+   ↓
+Docling
+   ↓
+Table structure
+   ↓
+Rows / Columns / Cells
+   ↓
+Structured representation"""),
+      Spacer(1, 4),
+      Paragraph(
+          "And then ask: <b>How should tables be represented for"
+          " RAG?</b><br/>For example:",
+          body_style,
+      ),
+      create_ascii_table("""| Product | Region | Revenue |
+|---------|--------|---------|
+| A       | India  | 10M     |
+| B       | USA    | 20M     |"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Should we embed the raw Markdown table?<br/>Or convert it"
+          " into:",
+          body_style,
+      ),
+      create_ascii_table("""Product A
+Region: India
+Revenue: 10M"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Or create a table-specific retrieval strategy? That becomes an"
+          " advanced RAG topic.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_3))
+
+  # 4. Pictures and Images
+  block_4 = [
+      Paragraph("4. Pictures and Images", h3_style),
+      Paragraph(
+          "Docling can identify pictures in documents. We should learn:",
+          body_style,
+      ),
+      create_ascii_table("""PDF
+ ↓
+Docling
+ ↓
+Picture detected
+ ↓
+Picture metadata / location
+ ↓
+Image processing"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Then we can ask: <b>What do we do when a PDF contains an"
+          " architecture diagram?</b><br/>This connects directly to your"
+          " multimodal RAG goal.<br/>For example:",
+          body_style,
+      ),
+      create_ascii_table("""Architecture Diagram
+        ↓
+Docling detects picture
+        ↓
+Image extraction
+        ↓
+Vision model
+        ↓
+Description
+        ↓
+Metadata / searchable representation"""),
+  ]
+  story.append(KeepTogether(block_4))
+
+  # 5. Architecture Diagrams
+  block_5 = [
+      Paragraph(f"5. Architecture Diagrams and Figures {GOLD_STARS}", h3_style),
+      Paragraph("This deserves its own experiment.<br/>For example:", body_style),
+      create_ascii_table("""User
+ ↓
+API
+ ↓
+Event Hub
+ ↓
+Processing
+ ↓
+Data Explorer"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Docling may identify the diagram as a picture, but: <b>Identifying"
+          " an image and understanding an image are two different"
+          " problems.</b><br/>We should learn that distinction.",
+          body_style,
+      ),
+      create_ascii_table("""Document understanding
+        ↓
+"There's a picture here."
+
+Vision understanding
+        ↓
+"This picture represents an Azure Event Hub
+architecture.\""""),
+      Spacer(1, 4),
+      Paragraph(
+          "That distinction is crucial for multimodal RAG.", body_style
+      ),
+  ]
+  story.append(KeepTogether(block_5))
+
+  # 6. Mathematical Formulas
+  block_6 = [
+      Paragraph("6. Mathematical Formulas", h3_style),
+      Paragraph(
+          "This is another important Docling capability to"
+          " investigate.<br/>For example:",
+          body_style,
+      ),
+      create_ascii_table("E = mc²\n\nor:\n\nP(A|B) = P(B|A)P(A) / P(B)"),
+      Spacer(1, 4),
+      Paragraph("We should learn:", body_style),
+      create_ascii_table("""PDF
+ ↓
+Formula
+ ↓
+Document parser
+ ↓
+Formula representation
+ ↓
+Markdown / LaTeX"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This is particularly useful for scientific papers, engineering"
+          " documents, technical manuals, and research documents.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_6))
+
+  # 7. Lists & Nested Structures
+  block_7 = [
+      Paragraph("7. Lists and Nested Structures", h3_style),
+      Paragraph("Consider:", body_style),
+      create_ascii_table("""1. Authentication
+   1.1 OAuth
+   1.2 JWT
+
+2. Authorization
+   2.1 RBAC
+   2.2 ABAC"""),
+      Spacer(1, 4),
+      Paragraph(
+          "A basic text extractor might flatten this. Docling's document"
+          " structure gives us an opportunity to preserve:",
+          body_style,
+      ),
+      create_ascii_table("""Parent
+ ├── Child
+ └── Child"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This matters when creating hierarchical chunks.", body_style
+      ),
+  ]
+  story.append(KeepTogether(block_7))
+
+  # 8. Document Hierarchy
+  block_8 = [
+      Paragraph(f"8. Document Hierarchy {GOLD_STARS}", h3_style),
+      Paragraph(
+          "This is one of the most important topics for your RAG"
+          " learning.<br/>Consider:",
+          body_style,
+      ),
+      create_ascii_table("""Chapter
+│
+├── Section
+│   ├── Paragraph
+│   ├── Paragraph
+│   └── Table
+│
+└── Section
+    ├── Paragraph
+    └── Figure"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Instead of treating the PDF as <i>one giant text stream</i>, we can"
+          " preserve:",
+          body_style,
+      ),
+      create_ascii_table("""Document
+   ↓
+Section
+   ↓
+Subsection
+   ↓
+Content"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This leads directly to <b>Hierarchical RAG</b> and"
+          " <b>Parent-child retrieval</b>.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_8))
+
+  # 9. Page-Level Information
+  block_9 = [
+      Paragraph("9. Page-Level Information", h3_style),
+      Paragraph(
+          "We should learn how Docling associates content with"
+          " pages.<br/>For example:",
+          body_style,
+      ),
+      create_ascii_table("""Document
+│
+├── Page 1
+│   ├── Heading
+│   └── Paragraph
+│
+├── Page 2
+│   ├── Table
+│   └── Paragraph
+│
+└── Page 3
+    └── Figure"""),
+      Spacer(1, 4),
+      Paragraph("Then we can attach metadata:", body_style),
+      create_ascii_table("""{
+    "page": 3,
+    "document": "architecture.pdf",
+    "element_type": "picture"
+}"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This becomes extremely valuable for citations, source references,"
+          " debugging, retrieval, and UI document previews.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_9))
+
+  # 10. Bounding Boxes and Coordinates
+  block_10 = [
+      Paragraph("10. Bounding Boxes and Coordinates", h3_style),
+      Paragraph(
+          "This is a more advanced but very useful topic. A document element"
+          " can have a physical location:",
+          body_style,
+      ),
+      create_ascii_table("""┌────────────────────────────┐
+│                            │
+│       Heading              │
+│                            │
+│   ┌───────────────┐        │
+│   │    TABLE      │        │
+│   └───────────────┘        │
+│                            │
+└────────────────────────────┘"""),
+      Spacer(1, 4),
+      Paragraph(
+          "We can potentially associate an element with: <code>x</code>,"
+          " <code>y</code>, <code>width</code>, <code>height</code>,"
+          " <code>page</code>.<br/>Why do we care? Because production"
+          ' applications may need: <i>"Show me the exact location of the'
+          ' answer in the original PDF."</i>',
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_10))
+
+  # 11. Metadata Extraction
+  block_11 = [
+      Paragraph("11. Metadata Extraction", h3_style),
+      Paragraph("We should learn how to preserve metadata such as:", body_style),
+      create_ascii_table("""Document
+│
+├── filename
+├── page
+├── section
+├── element type
+├── heading hierarchy
+├── coordinates
+└── source"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Then our eventual RAG chunk could look conceptually like:",
+          body_style,
+      ),
+      create_ascii_table("""{
+    "text": "...",
+    "metadata": {
+        "source": "architecture.pdf",
+        "page": 4,
+        "section": "Event Processing",
+        "element_type": "paragraph"
     }
-    
-    if all(os.path.exists(p) for p in win_fonts.values()):
-        for name, path in win_fonts.items():
-            pdfmetrics.registerFont(TTFont(name, path))
-        return "DocSans", "DocSans-Bold", "DocMono", "DocMono-Bold"
-    
-    return "Helvetica", "Helvetica-Bold", "Courier", "Courier-Bold"
+}"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This connects Docling directly to LangChain Documents.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_11))
 
-SANS, SANS_BOLD, MONO, MONO_BOLD = init_fonts()
+  # 12. Docling -> LangChain
+  block_12 = [
+      Paragraph("12. Docling → LangChain", h3_style),
+      Paragraph(
+          "This should definitely be part of our journey. Eventually:",
+          body_style,
+      ),
+      create_ascii_table("""PDF
+ ↓
+Docling
+ ↓
+DoclingDocument
+ ↓
+Structured elements
+ ↓
+LangChain Document
+ ↓
+Chunking
+ ↓
+Embedding
+ ↓
+Vector DB"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This is where our Docling learning becomes directly useful to your"
+          " RAG application.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_12))
 
-# ----------------------------------------------------------------------
-# 2. Numbered Canvas with Unified Header
-# ----------------------------------------------------------------------
-class GuideCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+  # 13. Docling + Chunking
+  block_13 = [
+      Paragraph(f"13. Docling + Chunking {GOLD_STARS}", h3_style),
+      Paragraph(
+          "This is where things become really interesting. Instead of:",
+          body_style,
+      ),
+      create_ascii_table("""PDF
+ ↓
+Extract all text
+ ↓
+RecursiveCharacterTextSplitter"""),
+      Spacer(1, 4),
+      Paragraph("we can explore:", body_style),
+      create_ascii_table("""PDF
+ ↓
+Docling
+ ↓
+Document structure
+ ↓
+Semantic elements
+ ↓
+Structure-aware chunking"""),
+      Spacer(1, 4),
+      Paragraph(
+          "For example: <b>Heading + Paragraph + Paragraph + Table</b> can"
+          " potentially form a much better semantic unit than <i>every 500"
+          " characters</i>.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_13))
 
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+  # 14. Docling + Hybrid Documents
+  block_14 = [
+      Paragraph("14. Docling + Hybrid Documents", h3_style),
+      Paragraph(
+          "We should eventually test a single PDF containing:", body_style
+      ),
+      create_ascii_table("""Text
++
+Table
++
+Image
++
+Architecture Diagram
++
+Formula
++
+Scanned Page"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This is actually very close to the sample PDF you asked me to"
+          " create earlier. Then we can see how Docling handles each"
+          " component. That would make an excellent practical exercise.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_14))
 
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_decorations(num_pages)
-            super().showPage()
-        super().save()
+  # 15. Comparison Table
+  table_data = [
+      ["Capability", "PyPDFLoader", "PyMuPDF", "Docling"],
+      ["Text", "[OK]", "[OK]", "[OK]"],
+      ["Pages", "[OK]", "[OK]", "[OK]"],
+      [
+          "Reading order",
+          "Limited",
+          "Limited",
+          '<font color="#eab308">★</font>',
+      ],
+      [
+          "Tables",
+          "Limited",
+          "Limited",
+          '<font color="#eab308">★ ★ ★</font>',
+      ],
+      [
+          "Layout",
+          "Limited",
+          "Limited",
+          '<font color="#eab308">★ ★ ★</font>',
+      ],
+      [
+          "Images",
+          "Limited",
+          "[OK]",
+          '<font color="#eab308">★ ★ ★</font>',
+      ],
+      [
+          "Structure",
+          "Limited",
+          "Limited",
+          '<font color="#eab308">★ ★ ★</font>',
+      ],
+      [
+          "Complex PDFs",
+          "Limited",
+          "Good",
+          '<font color="#eab308">★ ★ ★ ★ ★</font>',
+      ],
+      ["RAG-oriented document understanding", "Basic", "Basic", "Strong"],
+  ]
 
-    def draw_decorations(self, page_count):
-        self.saveState()
-        self.setFont(SANS, 8)
-        self.setFillColor(colors.HexColor("#4B5563"))
-        
-        # Header on every page
-        self.drawString(36, 760, DOCUMENT_NAME)
-        self.setStrokeColor(colors.HexColor("#CBD5E1"))
-        self.setLineWidth(0.75)
-        self.line(36, 752, 576, 752)
-        
-        # Bottom Footer
-        page_str = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(576, 25, page_str)
-        self.restoreState()
+  # Wrap table cells in Paragraphs so font and HTML color tags render properly
+  table_cell_style = ParagraphStyle(
+      name="TableCell",
+      fontName=SANS_REG,
+      fontSize=8.5,
+      leading=11,
+      textColor=colors.HexColor("#1e293b"),
+  )
+  table_head_style = ParagraphStyle(
+      name="TableHead",
+      fontName=SANS_BOLD,
+      fontSize=8.5,
+      leading=11,
+      textColor=colors.white,
+  )
 
-# ----------------------------------------------------------------------
-# 3. PDF Generator
-# ----------------------------------------------------------------------
-def generate_exact_pdf():
-    output_filename = f"{DOCUMENT_NAME}.pdf"
-    
-    doc = SimpleDocTemplate(
-        output_filename,
-        pagesize=letter,
-        leftMargin=36,
-        rightMargin=36,
-        topMargin=46,
-        bottomMargin=42
-    )
+  formatted_table_data = []
+  for row_idx, row in enumerate(table_data):
+    formatted_row = []
+    for cell in row:
+      if row_idx == 0:
+        formatted_row.append(Paragraph(cell, table_head_style))
+      else:
+        formatted_row.append(Paragraph(cell, table_cell_style))
+    formatted_table_data.append(formatted_row)
 
-    doc_title_style = ParagraphStyle(
-        'MainTitle',
-        fontName=SANS_BOLD,
-        fontSize=15,
-        leading=19,
-        textColor=colors.HexColor("#0F766E"),
-        spaceAfter=3
-    )
-    doc_sub_style = ParagraphStyle(
-        'SubTitle',
-        fontName=SANS,
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor("#0F766E"),
-        spaceAfter=8
-    )
-    step_heading_style = ParagraphStyle(
-        'StepHeading',
-        fontName=SANS_BOLD,
-        fontSize=10,
-        leading=13,
-        textColor=colors.HexColor("#1E293B"),
-        spaceBefore=7,
-        spaceAfter=3
-    )
-    body_style = ParagraphStyle(
-        'BodyDark',
-        fontName=SANS,
-        fontSize=8.5,
-        leading=12,
-        textColor=colors.HexColor("#1F2937"),
-        spaceAfter=3
-    )
-    badge_style = ParagraphStyle(
-        'Badge',
-        fontName=SANS_BOLD,
-        fontSize=7,
-        leading=9,
-        textColor=colors.HexColor("#0F766E")
-    )
-    code_text_style = ParagraphStyle(
-        'CodeText',
-        fontName=MONO,
-        fontSize=7.5,
-        leading=10.5,
-        textColor=colors.HexColor("#0F172A")
-    )
-    table_cell_style = ParagraphStyle(
-        'TblCell',
-        fontName=SANS,
-        fontSize=8,
-        leading=11,
-        textColor=colors.HexColor("#1F2937")
-    )
-    table_hdr_style = ParagraphStyle(
-        'TblHdr',
-        fontName=SANS_BOLD,
-        fontSize=8,
-        leading=11,
-        textColor=colors.HexColor("#0F766E")
-    )
+  comp_table = Table(formatted_table_data, colWidths=[187, 100, 100, 100])
+  comp_table.setStyle(
+      TableStyle([
+          ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+          ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+          ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+          (
+              "ROWBACKGROUNDS",
+              (0, 1),
+              (-1, -1),
+              [colors.white, colors.HexColor("#f8fafc")],
+          ),
+          ("TOPPADDING", (0, 0), (-1, -1), 5),
+          ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+      ])
+  )
 
-    def render_card(badge_label, content_text):
-        b_p = Paragraph(f"<b>{badge_label.upper()}</b>", badge_style)
-        
-        formatted = (
-            content_text.strip()
-            .replace('&', '&amp;')
-            .replace('<', '&lt;')
-            .replace('>', '&gt;')
-            .replace('\n', '<br/>')
-            .replace(' ', '&nbsp;')
-        )
-        c_p = Paragraph(formatted, code_text_style)
-        
-        t = Table([[b_p], [Spacer(1, 2)], [c_p]], colWidths=[540])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F0FDFA")),
-            ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor("#99F6E4")),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 7),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 7),
-        ]))
-        return t
+  block_15 = [
+      Paragraph("15. Docling vs Traditional PDF Loaders", h3_style),
+      Paragraph("We should also perform a proper comparison:", body_style),
+      comp_table,
+      Spacer(1, 4),
+      Paragraph(
+          "The exact capabilities depend on the document and configuration, so"
+          " we'll validate them hands-on rather than treating the table as"
+          " absolute.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_15))
 
-    # Initialize story list
-    story = []
+  # 16. Configuration
+  block_16 = [
+      Paragraph("16. Docling Configuration", h3_style),
+      Paragraph(
+          "Eventually we'll learn that <code>converter ="
+          " DocumentConverter()</code> is only the beginning. We'll investigate"
+          " things such as:",
+          body_style,
+      ),
+      create_ascii_table("""DocumentConverter
+       │
+       ├── PDF pipeline options
+       ├── OCR options
+       ├── table options
+       ├── image options
+       └── processing configuration"""),
+      Spacer(1, 4),
+      Paragraph(
+          "This is where we start moving toward production configuration.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_16))
 
-    # Title Banner
-    story.append(Paragraph(DOCUMENT_NAME, doc_title_style))
-    story.append(Paragraph("Document Understanding and Reading Order Integrity for RAG", doc_sub_style))
+  # 17. Performance & Production
+  block_17 = [
+      Paragraph(
+          "17. Docling Performance &amp; Production Considerations", h3_style
+      ),
+      Paragraph("Later, we should investigate:", body_style),
+      create_ascii_table("""Large PDFs
+Thousands of PDFs
+Parallel processing
+Caching
+OCR cost
+Processing time
+Memory usage
+Failure handling
+Logging"""),
+      Spacer(1, 4),
+      Paragraph(
+          "Because: <b>A library working perfectly on a 5-page PDF is not"
+          " automatically a production ingestion pipeline.</b>",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_17))
 
-    # Objective
-    story.append(Paragraph("Objective", step_heading_style))
-    story.append(Paragraph("We already learned:", body_style))
-    story.append(Paragraph("Stage 1.4.2.5.1 — Basic OCR", body_style))
-    story.append(render_card("BASIC OCR PIPELINE", "Image\n  ↓\nOCR\n  ↓\nText"))
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("Then:", body_style))
-    story.append(Paragraph("Stage 1.4.2.5.2 — Docling for Scanned PDFs", body_style))
-    story.append(render_card("DOCLING PIPELINE", "Scanned PDF\n     ↓\n  Docling\n     ↓\nDoclingDocument\n     ↓\nMarkdown / structured representation"))
-    story.append(Spacer(1, 3))
+  # Learning Journey Restructure
+  block_restructure = [
+      Paragraph("How I would restructure your learning journey", h2_style),
+      Paragraph(
+          "I would not abandon OCR, but I would avoid spending too much time"
+          " manually implementing OCR pipelines now.<br/>I'd make the next"
+          " part:",
+          body_style,
+      ),
+      create_ascii_table("""Stage 1.4.2 — OCR & Complex PDF Ingestion
+│
+├── 1.4.2.1 — Text vs Scanned PDF                     [OK]
+├── 1.4.2.2 — Detecting Scanned Pages                [OK]
+├── 1.4.2.3 — Deep PDF Page Analysis                 [OK]
+├── 1.4.2.4 — OCR Fundamentals                       [OK]
+│
+├── 1.4.2.5 — OCR Approach
+│   ├── 1.4.2.5.1 — Basic OCR                        [OK]
+│   ├── 1.4.2.5.2 — Docling for Scanned PDFs         [OK]
+│   └── 1.4.2.5.3 — Layout & Reading Order           [OK]
+│
+└── Docling Deep Dive
+    │
+    ├── Docling Document Model
+    ├── Export & Serialization
+    ├── Tables
+    ├── Pictures & Figures
+    ├── Mathematical Formulas
+    ├── Lists & Hierarchy
+    ├── Page & Element Metadata
+    ├── Bounding Boxes
+    ├── Document Structure
+    ├── Structure-aware Chunking
+    ├── Docling → LangChain Documents
+    ├── Multimodal / Vision Integration
+    ├── Complex Mixed PDFs
+    ├── Docling vs PDF Loaders
+    └── Production Configuration & Performance"""),
+  ]
+  story.append(KeepTogether(block_restructure))
 
-    story.append(Paragraph("Now we're asking a deeper question:", body_style))
-    story.append(Paragraph("Can Docling understand the layout of a document and determine the correct logical reading order?", body_style))
-    story.append(Spacer(1, 3))
+  # Recommendation
+  block_rec = [
+      Paragraph("My recommendation for our very next lesson", h2_style),
+      Paragraph(
+          "Don't jump to OCR preprocessing yet.<br/>I'd make our next"
+          " lesson:",
+          body_style,
+      ),
+      create_ascii_table("Stage 1.4.2.5.4 — Docling Document Model"),
+      Spacer(1, 4),
+      Paragraph(
+          "Because we've already successfully created:",
+          body_style,
+      ),
+      create_ascii_table("doc = result.document"),
+      Spacer(1, 4),
+      Paragraph(
+          "but we haven't really understood what <code>DoclingDocument</code>"
+          " contains and how its elements are represented.<br/>Once you"
+          " understand that, everything else—tables, figures, hierarchy,"
+          " metadata, bounding boxes, structure-aware chunking, and Docling →"
+          " LangChain—will make much more sense.<br/>That would be a much"
+          " stronger progression for your RAG learning journey.",
+          body_style,
+      ),
+  ]
+  story.append(KeepTogether(block_rec))
 
-    # Step 1
-    story.append(Paragraph("Step 1 — Understand the Problem", step_heading_style))
-    story.append(Paragraph("Consider a document like this:", body_style))
-    box_diag = (
-        "┌──────────────────────┬──────────────────────┐\n"
-        "│ Heading A            │ Heading B            │\n"
-        "│                      │                      │\n"
-        "│ Paragraph A1         │ Paragraph B1         │\n"
-        "│ Paragraph A2         │ Paragraph B2         │\n"
-        "│                      │                      │\n"
-        "└──────────────────────┴──────────────────────┘"
-    )
-    story.append(render_card("VISUAL LAYOUT", box_diag))
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("A naive text extractor might produce:", body_style))
-    naive_txt = "Heading A\nHeading B\nParagraph A1\nParagraph B1\nParagraph A2\nParagraph B2"
-    story.append(render_card("NAIVE EXTRACTION", naive_txt))
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("But the logical reading order might be:", body_style))
-    logical_txt = "Heading A\nParagraph A1\nParagraph A2\n\nHeading B\nParagraph B1\nParagraph B2"
-    story.append(render_card("LOGICAL READING ORDER", logical_txt))
-    story.append(Paragraph("That's the problem layout and reading-order analysis tries to solve.", body_style))
-    story.append(Spacer(1, 3))
+  doc.build(story, canvasmaker=NumberedCanvas)
+  print(f"Successfully generated: {Path(filename).resolve()}")
 
-    # Step 2
-    story.append(Paragraph("Step 2 — Understand Why This Matters to RAG", step_heading_style))
-    story.append(Paragraph("This is extremely important. Suppose a PDF contains:", body_style))
-    col_diag = "Column 1                  Column 2\n\nAzure Event Hubs          Azure Data Explorer\n\nEvent ingestion           Analytics\n\nHigh-volume events        Query processing"
-    story.append(render_card("MULTI-COLUMN INPUT", col_diag))
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("If the extraction order is wrong, we might create a chunk such as:", body_style))
-    corrupt_chunk = "Azure Event Hubs\nAzure Data Explorer\nEvent ingestion\nAnalytics\nHigh-volume events\nQuery processing"
-    story.append(render_card("CORRUPTED EXTRACTION", corrupt_chunk))
-    story.append(Paragraph("The text exists, but its relationships have been damaged. That can negatively affect:", body_style))
-    story.append(render_card("RAG DEGRADATION FLOW", "Chunking\n   ↓\nEmbedding\n   ↓\nRetrieval\n   ↓\nLLM context"))
-    story.append(Paragraph("Therefore:\n\nGood RAG begins with good document understanding.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 3
-    story.append(Paragraph("Step 3 — Locate the Sample PDF", step_heading_style))
-    story.append(Paragraph("Download the sample PDF above and place it somewhere accessible from your notebook. For example:", body_style))
-    tree_path = "rag-learning/\n│\n├── notebooks/\n│\n├── data/\n│   └── docling_layout_reading_order_sample.pdf\n│\n└── ..."
-    story.append(render_card("DIRECTORY STRUCTURE", tree_path))
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("Then:", body_style))
-    code_s3 = 'from pathlib import Path\n\npdf_path = Path(\n    "../../data/docling_layout_reading_order_sample.pdf"\n)\n\nprint(pdf_path.exists())\nprint(pdf_path)'
-    story.append(render_card("PYTHON", code_s3))
-    story.append(Paragraph("Adjust the path according to where you saved it. We want:\n\nTrue", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 4
-    story.append(Paragraph("Step 4 — Check Your Docling Version", step_heading_style))
-    story.append(Paragraph("We're using your installed:\n\nDocling 2.120.3\n\nLet's confirm from the notebook:", body_style))
-    code_s4 = 'import importlib.metadata\n\nprint(importlib.metadata.version("docling"))'
-    story.append(render_card("PYTHON", code_s4))
-    story.append(Paragraph("Expected:\n\n2.120.3", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 5
-    story.append(Paragraph("Step 5 — Create the Document Converter", step_heading_style))
-    story.append(Paragraph("Use the same approach from Stage 1.4.2.5.2:", body_style))
-    code_s5 = "from docling.document_converter import DocumentConverter\n\nconverter = DocumentConverter()"
-    story.append(render_card("PYTHON", code_s5))
-    story.append(Spacer(1, 3))
-
-    # Step 6
-    story.append(Paragraph("Step 6 — Convert the Sample PDF", step_heading_style))
-    story.append(Paragraph("Run:", body_style))
-    code_s6 = "result = converter.convert(pdf_path)\n\nprint(result.status)"
-    story.append(render_card("PYTHON", code_s6))
-    story.append(Paragraph("We want a successful conversion.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 7
-    story.append(Paragraph("Step 7 — Get the DoclingDocument", step_heading_style))
-    code_s7 = "doc = result.document\nprint(type(doc))"
-    story.append(render_card("PYTHON", code_s7))
-    story.append(Paragraph("You should get a DoclingDocument.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 8
-    story.append(Paragraph("Step 8 — Export to Markdown", step_heading_style))
-    story.append(Paragraph("This is our first way to observe the result:", body_style))
-    code_s8 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
-    story.append(render_card("PYTHON", code_s8))
-    story.append(Paragraph("What are we looking for? Look carefully at: Heading order, Paragraph order, Two-column content, Table position, Caption position, Page transitions.", body_style))
-    story.append(Paragraph("Don't just ask:\n\"Did Docling extract the words?\"\nAsk:\n\"Did Docling preserve the logical structure?\"\nThat's the purpose of this stage.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 9
-    story.append(Paragraph("Step 9 — Inspect the Page Structure", step_heading_style))
-    story.append(Paragraph("Now we want to go deeper than Markdown. The DoclingDocument contains structured information about document elements. Let's first inspect what is available:", body_style))
-    code_s9 = 'print(type(doc))\n[m for m in dir(doc) if not m.startswith("_")]'
-    story.append(render_card("PYTHON", code_s9))
-    story.append(Paragraph("This is useful because we're working specifically with Docling 2.120.3, rather than blindly copying APIs from another version.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 10
-    story.append(Paragraph("Step 10 — Inspect Document Items", step_heading_style))
-    story.append(Paragraph("For this stage, one particularly useful concept is the document's items. Try:", body_style))
-    code_s10 = "print(doc.body)\nprint(doc.__dict__.keys())"
-    story.append(render_card("PYTHON", code_s10))
-    story.append(Paragraph("We're looking for how Docling 2.120.3 represents the document internally. Depending on the exact object structure exposed by your installed version, we'll inspect the relevant collections rather than assuming a particular API.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 11
-    story.append(Paragraph("Step 11 — Why We Are Inspecting the Structure", step_heading_style))
-    story.append(Paragraph("Imagine Docling internally recognizes something like:", body_style))
-    tree_p1 = "Page 1\n│\n├── Heading\n├── Paragraph\n├── Paragraph\n├── Heading\n├── Paragraph\n├── Table\n└── Caption"
-    story.append(render_card("DOCUMENT STRUCTURE", tree_p1))
-    story.append(Paragraph("That's much more useful than:\none giant string\nbecause later we can make intelligent decisions about chunking. For example:", body_style))
-    story.append(render_card("SEMANTIC CHUNKING", "Heading\n   +\nParagraphs\n   ↓\none semantic chunk\nrather than blindly doing:\nevery 500 characters"))
-    story.append(Spacer(1, 3))
-
-    # Step 12
-    story.append(Paragraph("Step 12 — Inspect the Markdown More Carefully", step_heading_style))
-    story.append(Paragraph("Let's print the first page's extracted Markdown separately if possible, but first simply inspect:", body_style))
-    code_s12 = "print(markdown_text[:5000])"
-    story.append(render_card("PYTHON", code_s12))
-    story.append(Paragraph("Look for something like:", body_style))
-    md_sample = "# Azure Event Processing Architecture\n\n## 1. Overview\n...\n## 2. Processing Stages\n...\n| Stage | Component | Purpose |\n|---|---|---|\n..."
-    story.append(render_card("MARKDOWN PREVIEW", md_sample))
-    story.append(Paragraph("The exact result will depend on how Docling interprets the generated PDF.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 13
-    story.append(Paragraph("Step 13 — Focus on Reading Order", step_heading_style))
-    story.append(Paragraph("Our sample contains this logical sequence:", body_style))
-    seq_txt = "1. Overview\n\n2. Ingestion Layer\n\n3. Analytics Layer\n\n4. Processing Stages\n\n5. Important Design Considerations"
-    story.append(render_card("LOGICAL SEQUENCE", seq_txt))
-    story.append(Paragraph("We intentionally designed the document so that the visual layout isn't simply a single linear stream. The question we're testing is:\n\nVisual position\n      ≠\nLogical reading order\n\nA document-understanding system needs to infer the latter.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 14
-    story.append(Paragraph("Step 14 — Compare with a Naive Text Extraction Approach", step_heading_style))
-    story.append(Paragraph("This comparison is useful.", body_style))
-    comp_naive = "Naive PDF extraction\nPDF\n ↓\nText extraction\n ↓\nString\nPotential problem:\nWrong ordering\nLost relationships\nLost layout\nLost table structure"
-    comp_docling = "Docling\nPDF\n ↓\nDocument understanding\n ↓\nLayout\n ↓\nReading order\n ↓\nStructured document\nPotentially:\nHeading\n   ↓\nParagraph\n   ↓\nParagraph\n   ↓\nTable\n   ↓\nCaption"
-    story.append(render_card("NAIVE PDF EXTRACTION", comp_naive))
-    story.append(Spacer(1, 2))
-    story.append(render_card("DOCLING EXTRACTION", comp_docling))
-    story.append(Paragraph("That's why we're learning Docling.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 15
-    story.append(Paragraph("Step 15 — Understand Reading Order in RAG", step_heading_style))
-    story.append(Paragraph("Suppose our document says: Azure Event Hubs and underneath it: Event ingestion platform. Then in another column: Azure Data Explorer with: Analytics platform. If our parser mixes them up, the resulting embedding might represent a distorted relationship. Instead, we want:", body_style))
-    correct_rel = "Azure Event Hubs\n    ↓\nEvent ingestion platform\nand:\nAzure Data Explorer\n    ↓\nAnalytics platform"
-    story.append(render_card("RELATIONSHIPS", correct_rel))
-    story.append(Paragraph("This produces much better semantic units for subsequent chunking.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 16
-    story.append(Paragraph("Step 16 — Understand the Relationship with Chunking", step_heading_style))
-    story.append(Paragraph("This is one of the most important lessons from this stage. We previously learned that chunking strategy matters. But now notice:", body_style))
-    chunk_flow = "Document Understanding\n        ↓\nLayout\n        ↓\nReading Order\n        ↓\nSemantic Structure\n        ↓\nChunking"
-    story.append(render_card("INGESTION FLOW", chunk_flow))
-    story.append(Paragraph("Therefore: You shouldn't think of chunking as an isolated operation. The quality of your chunks depends partly on how well you understand the source document. This is why modern RAG ingestion pipelines increasingly use document-understanding frameworks.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 17
-    story.append(Paragraph("Step 17 — Inspect the Table", step_heading_style))
-    story.append(Paragraph("Our sample PDF contains a table:\n\nStage | Component | Purpose", body_style))
-    tbl_raw = [
-        [Paragraph("Stage", table_hdr_style), Paragraph("Component", table_hdr_style), Paragraph("Purpose", table_hdr_style)],
-        [Paragraph("1", table_cell_style), Paragraph("Event Producer", table_cell_style), Paragraph("Publishes raw event streaming payload", table_cell_style)],
-        [Paragraph("2", table_cell_style), Paragraph("Azure Event Hubs", table_cell_style), Paragraph("Ingests high-throughput data streams", table_cell_style)],
-        [Paragraph("3", table_cell_style), Paragraph("Azure Data Explorer", table_cell_style), Paragraph("Low-latency real-time analytics query engine", table_cell_style)],
-    ]
-    tbl_flowable = Table(tbl_raw, colWidths=[45, 155, 340])
-    tbl_flowable.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#CCFBF1")),
-        ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor("#99F6E4")),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-    ]))
-    story.append(tbl_flowable)
-    story.append(Spacer(1, 3))
-    
-    story.append(Paragraph("After conversion:", body_style))
-    code_s17 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
-    story.append(render_card("PYTHON", code_s17))
-    story.append(Paragraph("Look for a Markdown table. If Docling preserves it as:\n| Stage | Component | Purpose |\n|---|---|---|\n| 1 | Event Producer | ... |\n| 2 | Azure Event Hubs | ... |\nthat's an important observation.", body_style))
-    story.append(Paragraph("Compare that with basic OCR, which could produce:", body_style))
-    ocr_raw_table = "Stage Component Purpose\n1 Event Producer Publishes...\n2 Azure Event Hubs Ingests..."
-    story.append(render_card("UNSTRUCTURED OCR OUTPUT", ocr_raw_table))
-    story.append(Paragraph("The second output contains the words but may have lost the explicit table relationships.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 18 (Exact Centered Axis Layout)
-    story.append(Paragraph("Step 18 — The Architecture We Are Building Toward", step_heading_style))
-    story.append(Paragraph("Our ingestion architecture is gradually becoming:", body_style))
-    arch_full = (
-        "                    Enterprise PDF\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                       Docling\n"
-        "                          │\n"
-        "           ┌──────────────┼──────────────┐\n"
-        "           │              │              │\n"
-        "           ▼              ▼              ▼\n"
-        "          OCR           Layout         Tables\n"
-        "           │              │              │\n"
-        "           └──────────────┼──────────────┘\n"
-        "                          ▼\n"
-        "                  DoclingDocument\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                    Reading Order\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                  Structured Content\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                       Chunking\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                      Embedding\n"
-        "                          │\n"
-        "                          ▼\n"
-        "                     Vector Store"
-    )
-    story.append(render_card("INGESTION ARCHITECTURE", arch_full))
-    story.append(Paragraph("This is the conceptual reason we're doing this stage.", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 19
-    story.append(Paragraph("Step 19 — What We Are NOT Doing Yet", step_heading_style))
-    story.append(Paragraph("Don't worry about: OCR engine tuning, Tesseract configuration, image preprocessing, formula enrichment, picture description, multimodal embeddings, table-specific chunking, LangChain integration. Those are separate concerns.", body_style))
-    story.append(Paragraph("Our question right now is simply:\nCan Docling correctly understand the spatial organization and logical reading order of our document?", body_style))
-    story.append(Spacer(1, 3))
-
-    # Step 20
-    story.append(Paragraph("Step 20 — Your Hands-On Experiment", step_heading_style))
-    story.append(Paragraph("Run these cells in order.", body_style))
-    
-    code_s20_c1 = "from pathlib import Path\nfrom docling.document_converter import DocumentConverter"
-    story.append(render_card("CELL 1", code_s20_c1))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c2 = 'pdf_path = Path(\n    "path/to/docling_layout_reading_order_sample.pdf"\n)\n\nprint("Exists:", pdf_path.exists())'
-    story.append(render_card("CELL 2", code_s20_c2))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c3 = "converter = DocumentConverter()"
-    story.append(render_card("CELL 3", code_s20_c3))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c4 = "result = converter.convert(pdf_path)\n\nprint(\"Status:\", result.status)"
-    story.append(render_card("CELL 4", code_s20_c4))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c5 = "doc = result.document\n\nprint(type(doc))"
-    story.append(render_card("CELL 5", code_s20_c5))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c6 = "markdown_text = doc.export_to_markdown()\n\nprint(markdown_text)"
-    story.append(render_card("CELL 6", code_s20_c6))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c7 = "print(doc.__dict__.keys())"
-    story.append(render_card("CELL 7", code_s20_c7))
-    story.append(Spacer(1, 2))
-    
-    code_s20_c8 = 'print([m for m in dir(doc) if not m.startswith("_")])'
-    story.append(render_card("CELL 8", code_s20_c8))
-    story.append(Spacer(1, 3))
-
-    # Observation Block
-    story.append(Paragraph("The key thing I want you to observe", step_heading_style))
-    story.append(Paragraph("Don't worry yet about writing a lot of code. After running the conversion, look at the Markdown output and compare it against the visual PDF. We're testing three things:", body_style))
-    obs_flow = "1. Did Docling recognize the headings?\n        ↓\n2. Did it preserve the logical reading order?\n        ↓\n3. Did it preserve the table structure?"
-    story.append(render_card("VERIFICATION CRITERIA", obs_flow))
-    story.append(Paragraph("Once we see your actual output from Docling 2.120.3, we'll inspect the DoclingDocument structure in the next step and learn how Docling represents layout and reading order internally. That is much more valuable than simply calling an export method and moving on.", body_style))
-
-    doc.build(story, canvasmaker=GuideCanvas)
-    print(f"Generated PDF with exact text: {output_filename}")
 
 if __name__ == "__main__":
-    generate_exact_pdf()
+  build_pdf("docling_learning_track.pdf")

@@ -1,3 +1,0 @@
-## Azure Event Hubs - Scanned Knowledge Page
-
-Azure Event Hubs is a managed real-time event streaming service. It can ingest large volumes of events from applications, devices, telemetry systems, and other data sources. Partitions provide ordered sequences of events and help distribute processing work across consumers. Consumer groups allow multiple applications to independently read the same event stream. This page is intentionally stored as an image inside a PDF. There is no selectable PDF text layer. A human can read the page, but a normal text extraction library may return little or no text.
