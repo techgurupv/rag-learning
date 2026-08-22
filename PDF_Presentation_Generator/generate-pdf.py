@@ -1,56 +1,56 @@
 import os
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Preformatted, Table, TableStyle
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.platypus import (
+    HRFlowable,
+    KeepTogether,
+    Paragraph,
+    Preformatted,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
-# ---------------------------------------------------------
-# Unicode Font Registration (Ensures exact symbols render)
-# ---------------------------------------------------------
-def setup_unicode_fonts():
-    font_candidates = [
-        # Linux / Colab / Debian paths
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
-        ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf"),
-        # macOS paths
-        ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/System/Library/Fonts/Courier.dfont"),
-        ("/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Menlo.ttc"),
-        # Windows paths
-        ("C:\\Windows\\Fonts\\arialuni.ttf", "C:\\Windows\\Fonts\\consola.ttf"),
-        ("C:\\Windows\\Fonts\\seguisym.ttf", "C:\\Windows\\Fonts\\lucon.ttf"),
-    ]
-    
-    regular_registered = False
-    mono_registered = False
-    
-    for reg_path, mono_path in font_candidates:
-        if os.path.exists(reg_path) and not regular_registered:
-            try:
-                pdfmetrics.registerFont(TTFont('UnicodeSans', reg_path))
-                regular_registered = True
-            except Exception:
-                pass
-        if os.path.exists(mono_path) and not mono_registered:
-            try:
-                pdfmetrics.registerFont(TTFont('UnicodeMono', mono_path))
-                mono_registered = True
-            except Exception:
-                pass
 
-    sans_font = 'UnicodeSans' if regular_registered else 'Helvetica'
-    mono_font = 'UnicodeMono' if mono_registered else 'Courier'
-    return sans_font, mono_font
+def register_system_fonts():
+    """Register Windows native fonts with full Unicode and box-drawing glyph support."""
+    win_fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
 
-SANS_FONT, MONO_FONT = setup_unicode_fonts()
+    # Primary Monospace font for diagrams
+    consolas_path = os.path.join(win_fonts, "consola.ttf")
+    segoe_path = os.path.join(win_fonts, "seguisym.ttf")
+    arial_path = os.path.join(win_fonts, "arial.ttf")
+    arialbd_path = os.path.join(win_fonts, "arialbd.ttf")
+
+    if os.path.exists(consolas_path):
+        pdfmetrics.registerFont(TTFont("ConsolasUnicode", consolas_path))
+        mono_font = "ConsolasUnicode"
+    elif os.path.exists(segoe_path):
+        pdfmetrics.registerFont(TTFont("SegoeSymbol", segoe_path))
+        mono_font = "SegoeSymbol"
+    else:
+        mono_font = "Courier"
+
+    if os.path.exists(arial_path) and os.path.exists(arialbd_path):
+        pdfmetrics.registerFont(TTFont("ArialUnicode", arial_path))
+        pdfmetrics.registerFont(TTFont("ArialUnicode-Bold", arialbd_path))
+        body_font = "ArialUnicode"
+        bold_font = "ArialUnicode-Bold"
+    else:
+        body_font = "Helvetica"
+        bold_font = "Helvetica-Bold"
+
+    return mono_font, body_font, bold_font
 
 
 class NumberedCanvas(canvas.Canvas):
-    """Canvas that computes total pages dynamically with clean headers and footers."""
+    """Generates clean running header and page numbering."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
@@ -69,350 +69,414 @@ class NumberedCanvas(canvas.Canvas):
 
     def draw_page_decorations(self, page_count):
         self.saveState()
-        self.setFont(SANS_FONT, 8)
+        self.setFont("Helvetica", 8)
         self.setFillColor(colors.HexColor("#64748B"))
 
-        # Highlighted PDF Running Header
-        self.drawString(54, 11 * 72 - 36, "■ EXPERIMENT ANALYSIS: DOCLING STAGE 1.4.2.5.4")
-        self.drawRightString(8.5 * 72 - 54, 11 * 72 - 36, "TECHNICAL VERIFICATION REPORT")
-        self.setStrokeColor(colors.HexColor("#38BDF8"))  # Light blue accent header rule
-        self.setLineWidth(1)
-        self.line(54, 11 * 72 - 42, 8.5 * 72 - 54, 11 * 72 - 42)
-
-        # Running Footer
-        self.drawString(54, 36, "Confidential — Architecture Understanding & Verification")
-        self.drawRightString(8.5 * 72 - 54, 36, f"Page {self._pageNumber} of {page_count}")
-        self.setStrokeColor(colors.HexColor("#E2E8F0"))
+        # Header rule
+        self.setStrokeColor(colors.HexColor("#CBD5E1"))
         self.setLineWidth(0.75)
-        self.line(54, 46, 8.5 * 72 - 54, 46)
+        self.line(40, 755, 572, 755)
+        self.drawString(
+            40,
+            762,
+            "DOCLING ARCHITECTURE & LEARNING PATH // STAGE 1.4.2.5.4 ROADMAP",
+        )
+
+        # Footer rule
+        self.line(40, 45, 572, 45)
+        self.drawString(40, 32, "Technical Specification & Progress Tracker")
+        self.drawRightString(
+            572, 32, f"Page {self._pageNumber} of {page_count}"
+        )
         self.restoreState()
 
 
-def create_highlighted_box(
-    text, 
-    bg_color="#E0F2FE", 
-    text_color="#0369A1", 
-    border_color="#7DD3FC", 
-    font_size=10.5
-):
-    style = ParagraphStyle(
-        name=f"BoxText_{bg_color}_{text_color}_{font_size}",
-        fontName=SANS_FONT,
-        fontSize=font_size,
-        textColor=colors.HexColor(text_color),
-        leading=font_size + 4,
+def make_diagram_box(ascii_text, mono_font, width=532):
+    """Renders dark-themed diagram containers identical to modern terminal/code blocks."""
+    code_style = ParagraphStyle(
+        name="DiagramStyle",
+        fontName=mono_font,
+        fontSize=8.5,
+        leading=11.5,
+        textColor=colors.HexColor("#F8FAFC"),
     )
-    p = Paragraph(text, style)
-    t = Table([[p]], colWidths=[504])
-    
-    t_style = [
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(bg_color)),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('LEFTPADDING', (0, 0), (-1, -1), 10),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]
-    if border_color:
-        t_style.append(('BOX', (0, 0), (-1, -1), 1, colors.HexColor(border_color)))
-        
-    t.setStyle(TableStyle(t_style))
+    pre = Preformatted(ascii_text.strip("\n"), code_style)
+    t = Table([[pre]], colWidths=[width])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#1E293B")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 14),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+                ("TOPPADDING", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ]
+        )
+    )
     return t
 
 
-def generate_experiment_pdf(output_filename="Docling_Stage_1_4_2_5_4_Analysis.pdf"):
+def generate_pdf(output_path="Docling_Learning_Path_Presentation.pdf"):
+    mono_font, body_font, bold_font = register_system_fonts()
+
     doc = SimpleDocTemplate(
-        output_filename,
+        output_path,
         pagesize=letter,
-        leftMargin=54,
-        rightMargin=54,
-        topMargin=54,
-        bottomMargin=54
+        leftMargin=40,
+        rightMargin=40,
+        topMargin=55,
+        bottomMargin=55,
     )
 
     styles = getSampleStyleSheet()
 
-    body_style = ParagraphStyle(
-        'ExactBody',
-        parent=styles['Normal'],
-        fontName=SANS_FONT,
-        fontSize=9.5,
-        leading=14,
-        textColor=colors.HexColor("#1E293B"),
-        spaceAfter=4
+    styles.add(
+        ParagraphStyle(
+            "DocTitle",
+            fontName=bold_font,
+            fontSize=16,
+            leading=20,
+            textColor=colors.HexColor("#0F172A"),
+            spaceAfter=4,
+        )
     )
-
-    code_style = ParagraphStyle(
-        'ExactCode',
-        fontName=MONO_FONT,
-        fontSize=8,
-        leading=11.5,
-        textColor=colors.HexColor("#0F172A"),
+    styles.add(
+        ParagraphStyle(
+            "SectionHeader",
+            fontName=bold_font,
+            fontSize=11.5,
+            leading=15,
+            textColor=colors.HexColor("#0F172A"),
+            spaceBefore=8,
+            spaceAfter=4,
+        )
     )
-
-    # Palette
-    LIGHT_BLUE_BG = "#E0F2FE"       # Light Sky Blue
-    LIGHT_BLUE_TXT = "#0369A1"      # Deep Cyan / Navy Blue
-    LIGHT_BLUE_BORDER = "#7DD3FC"   # Border Accent
-
-    # Exact content structure with full ASCII and symbols intact
-    content_blocks = [
-        ("TITLE", "■ EXPERIMENT REPORT: STAGE 1.4.2.5.4", "#0F172A", "#FFFFFF", None, 12),
-        ("TEXT", "Yes — and this output is very significant for our Stage 1.4.2.5.4 experiment.<br/>You got:"),
-        ("CODE", """========== ARCHITECTURE TEXT TEST ==========
-
-Producer             -> FOUND
-Event Hubs           -> FOUND
-Stream Consumer      -> FOUND
-Data Explorer        -> FOUND
-But we need to be careful about what this proves."""),
-        
-        ("STEP", "■ Step 1 — What the code was testing"),
-        ("TEXT", "The code was essentially:"),
-        ("CODE", """markdown_text = doc.export_to_markdown()
-
-architecture_words = [
-    "Producer",
-    "Event Hubs",
-    "Stream Consumer",
-    "Data Explorer",
-]
-
-for word in architecture_words:
-    found = word.lower() in markdown_text.lower()
-
-    print(
-        f"{word:20} -> "
-        f"{'FOUND' if found else 'NOT FOUND'}"
-    )"""),
-        ("TEXT", "The test asks:<br/><br/><i>\"Do these words occur somewhere in the Markdown exported from the DoclingDocument?\"</i><br/><br/>Your answer is:<br/>Yes, all four occur somewhere in the exported Markdown.<br/>But this does not yet prove that Docling extracted them from the architecture image."),
-        
-        ("STEP", "■ Step 2 — Why?"),
-        ("TEXT", "Look at our sample PDF.<br/>It contains normal text such as:<br/><br/><i>An enterprise application publishes events to Azure Event Hubs.</i><br/><br/>It also contains the architecture diagram.<br/>Therefore:<br/><br/><b>\"Event Hubs\"</b><br/>could appear in the Markdown because it was extracted from the normal PDF text, not because Docling read it from the diagram.<br/><br/>This is the crucial distinction."),
-        
-        ("STEP", "■ Step 3 — Let's prove where the text came from"),
-        ("TEXT", "We need to perform a much more precise experiment.<br/>Run this:"),
-        ("CODE", """architecture_words = [
-    "Producer",
-    "Event Hubs",
-    "Stream Consumer",
-    "Data Explorer",
-]
-
-print("========== DOCLING DOCUMENT ITEMS ==========")
-
-for item, level in doc.iterate_items():
-
-    text = getattr(item, "text", "")
-
-    if text:
-
-        for word in architecture_words:
-
-            if word.lower() in text.lower():
-
-                print(
-                    f"\\nFOUND: {word}"
-                )
-
-                print(
-                    "Item type:",
-                    type(item).__name__
-                )
-
-                print(
-                    "Text:",
-                    repr(text)
-                )"""),
-        ("TEXT", "This will tell us which Docling item contains those words."),
-        
-        ("STEP", "■ Step 4 — What I expect"),
-        ("TEXT", "Suppose we get:"),
-        ("CODE", """FOUND: Event Hubs
-Item type: TextItem
-Text: 'An enterprise application publishes events to Azure Event Hubs.'"""),
-        ("TEXT", "That tells us:"),
-        ("CODE", """Event Hubs
-    ↓
-Normal PDF text
-    ↓
-TextItem"""),
-        ("TEXT", "It does not prove:"),
-        ("CODE", """Architecture image
-    ↓
-OCR/VLM
-    ↓
-Event Hubs"""),
-        ("TEXT", "Likewise, if Producer occurs in ordinary text elsewhere, that could explain its presence."),
-        
-        ("STEP", "■ Step 5 — Our test PDF has an important complication"),
-        ("TEXT", "This is something I want to make explicit because it affects the validity of our experiment.<br/>Our PDF was designed to contain:"),
-        ("CODE", """normal text
-table
-architecture diagram
-formula image"""),
-        ("TEXT", "Some words appearing in the architecture diagram also appear in the surrounding normal text.<br/>Therefore, this test:"),
-        ("CODE", "word in markdown_text"),
-        ("TEXT", "is not sufficient to establish image understanding.<br/><br/>This is a classic experimental-design problem:<br/><br/><b>The test data contains the same vocabulary in multiple places.</b><br/><br/>So we need to remove that ambiguity."),
-        
-        ("STEP", "■ Step 6 — The strongest test"),
-        ("TEXT", "Let's inspect the actual PictureItem.<br/>Run:"),
-        ("CODE", """for i, picture in enumerate(doc.pictures, start=1):
-
-    print("\\n" + "=" * 70)
-    print(f"PICTURE {i}")
-    print("=" * 70)
-
-    print(picture.model_dump())"""),
-        ("TEXT", "We're particularly interested in whether the picture contains an annotation/description."),
-        
-        ("STEP", "■ Step 7 — Search specifically for the picture description"),
-        ("TEXT", "Run:"),
-        ("CODE", """for i, picture in enumerate(doc.pictures, start=1):
-
-    print(f"\\n========== PICTURE {i} ==========")
-
-    annotations = getattr(
-        picture,
-        "annotations",
-        None
+    styles.add(
+        ParagraphStyle(
+            "LevelHeader",
+            fontName=bold_font,
+            fontSize=10.5,
+            leading=14,
+            textColor=colors.HexColor("#2563EB"),
+            spaceBefore=6,
+            spaceAfter=3,
+        )
     )
-
-    print("Annotations:")
-    print(annotations)"""),
-        ("TEXT", "If Level 3 picture understanding has happened, we should see something representing a generated description.<br/>Conceptually:"),
-        ("CODE", """PictureItem
-│
-├── image
-│
-├── provenance
-│
-└── annotations
-       │
-       └── generated description"""),
-        
-        ("STEP", "■ Step 8 — There's an even better experiment"),
-        ("TEXT", "We can make our test unambiguous.<br/>Create an architecture diagram containing unique text such as:"),
-        ("CODE", """┌──────────────────────────────────┐
-│       Enterprise Flow            │
-│                                  │
-│  ZetaProducer                    │
-│       ↓                          │
-│  QEventBridge                    │
-│       ↓                          │
-│  RStreamProcessor                │
-│       ↓                          │
-│  KAnalyticsStore                 │
-└──────────────────────────────────┘"""),
-        ("TEXT", "Those names should exist only inside the image.<br/>Then test:"),
-        ("CODE", """unique_words = [
-    "ZetaProducer",
-    "QEventBridge",
-    "RStreamProcessor",
-    "KAnalyticsStore",
-]"""),
-        ("TEXT", "Now:"),
-        ("CODE", """markdown_text = doc.export_to_markdown()
-
-for word in unique_words:
-
-    print(
-        f"{word:20} -> "
-        f"{'FOUND' if word.lower() in markdown_text.lower() else 'NOT FOUND'}"
-    )"""),
-        ("TEXT", "This eliminates the ambiguity."),
-        
-        ("STEP", "■ Step 9 — Why this matters"),
-        ("TEXT", "Imagine the result is:"),
-        ("CODE", """ZetaProducer        -> FOUND
-QEventBridge        -> FOUND
-RStreamProcessor    -> FOUND
-KAnalyticsStore     -> FOUND"""),
-        ("TEXT", "Now we have much stronger evidence that some image-processing mechanism has extracted the information.<br/>But if we get:"),
-        ("CODE", """ZetaProducer        -> NOT FOUND
-QEventBridge        -> NOT FOUND
-RStreamProcessor    -> NOT FOUND
-KAnalyticsStore     -> NOT FOUND"""),
-        ("TEXT", "while:"),
-        ("CODE", "len(doc.pictures)"),
-        ("TEXT", "is still:"),
-        ("CODE", "1"),
-        ("TEXT", "then we have demonstrated:"),
-        ("CODE", """Picture detection       ✅
-Picture extraction      ✅
-Text extraction         ❌"""),
-        ("TEXT", "And if the picture annotation contains a meaningful description, then:"),
-        ("CODE", """Picture detection       ✅
-Picture extraction      ✅
-Semantic understanding  ✅
-Exact OCR               possibly ❌"""),
-        ("TEXT", "That's a very valuable result."),
-        
-        ("STEP", "■ Step 10 — So what does YOUR current result mean?"),
-        ("TEXT", "Your current result:"),
-        ("CODE", """Producer             -> FOUND
-Event Hubs           -> FOUND
-Stream Consumer      -> FOUND
-Data Explorer        -> FOUND"""),
-        ("TEXT", "means only:<br/><br/><b>All four strings exist somewhere in Docling's Markdown output.</b><br/><br/>It does not yet prove:<br/><br/><i>\"Docling read those four strings from the architecture diagram.\"</i><br/><br/>Therefore, don't mark Level 3 as completed yet.<br/>We're actually doing the right thing by questioning the result."),
-        
-        ("STATUS", "■ Current status", "#ECFDF5", "#065F46", "#A7F3D0", 10.5),
-        ("TEXT", "<b>Stage 1.4.2.5.4</b><br/>Docling Table / Image / Formula Understanding<br/><br/><b>Level 1 — Picture Detection</b><br/>✅ Demonstrated<br/><br/><b>Level 2 — Picture Extraction</b><br/>✅ Demonstrated<br/><br/><b>Level 3 — Image Content Understanding & Semantic Extraction</b><br/>🔵 Investigating"),
-        
-        ("NEXT", "■ Next experiment", "#F1F5F9", "#334155", "#CBD5E1", 10.5),
-        ("TEXT", "First run the <code>doc.iterate_items()</code> diagnostic above.<br/>Paste its output here. From that output, we'll determine whether those FOUND values came from normal TextItems or from the picture-understanding enrichment. That will give us a scientifically valid answer rather than assuming that FOUND means OCR/VLM succeeded.")
-    ]
+    styles.add(
+        ParagraphStyle(
+            "BodyDark",
+            fontName=body_font,
+            fontSize=9.5,
+            leading=13.5,
+            textColor=colors.HexColor("#334155"),
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            "FormulaItem",
+            fontName=body_font,
+            fontSize=9.5,
+            leading=13.5,
+            textColor=colors.HexColor("#334155"),
+            leftIndent=12,
+            spaceAfter=2,
+        )
+    )
 
     story = []
 
-    for item in content_blocks:
-        block_type = item[0]
-        
-        if block_type == "TITLE":
-            _, text, bg, txt, border, size = item
-            story.append(Spacer(1, 10))
-            story.append(create_highlighted_box(text, bg_color=bg, text_color=txt, border_color=border, font_size=size))
-            story.append(Spacer(1, 6))
-            
-        elif block_type == "STEP":
-            _, text = item
-            story.append(Spacer(1, 10))
-            story.append(create_highlighted_box(
-                text, 
-                bg_color=LIGHT_BLUE_BG, 
-                text_color=LIGHT_BLUE_TXT, 
-                border_color=LIGHT_BLUE_BORDER, 
-                font_size=10.5
-            ))
-            story.append(Spacer(1, 6))
-            
-        elif block_type in ("STATUS", "NEXT"):
-            _, text, bg, txt, border, size = item
-            story.append(Spacer(1, 10))
-            story.append(create_highlighted_box(text, bg_color=bg, text_color=txt, border_color=border, font_size=size))
-            story.append(Spacer(1, 6))
-            
-        elif block_type == "TEXT":
-            story.append(Paragraph(item[1], body_style))
-            story.append(Spacer(1, 4))
-            
-        elif block_type == "CODE":
-            pre = Preformatted(item[1], code_style)
-            t = Table([[pre]], colWidths=[504])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
-                ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
-                ('TOPPADDING', (0, 0), (-1, -1), 6),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('LEFTPADDING', (0, 0), (-1, -1), 8),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ]))
-            story.append(Spacer(1, 3))
-            story.append(t)
-            story.append(Spacer(1, 6))
+    # Title
+    story.append(
+        Paragraph(
+            "Stage 1.4.2.5.4 — Docling Table / Image / Formula Understanding",
+            styles["DocTitle"],
+        )
+    )
+    story.append(
+        HRFlowable(
+            width="100%",
+            thickness=1.5,
+            color=colors.HexColor("#2563EB"),
+            spaceBefore=3,
+            spaceAfter=8,
+        )
+    )
+
+    # Lead text
+    story.append(
+        Paragraph(
+            "After Level 3 — Image Content Understanding & Semantic Extraction, "
+            "I recommend that we finish Stage 1.4.2.5.4 by covering tables and formulas systematically, "
+            "rather than moving immediately to 1.4.2.5.5.",
+            styles["BodyDark"],
+        )
+    )
+    story.append(Spacer(1, 4))
+    story.append(
+        Paragraph("Our learning path can now be:", styles["SectionHeader"])
+    )
+
+    # Master Diagram
+    path_ascii = (
+        "Stage 1.4.2.5.4\n"
+        "Docling Table / Image / Formula Understanding\n"
+        "│\n"
+        "├── Level 1\n"
+        "│   Picture Detection\n"
+        "│   [x] Completed\n"
+        "│\n"
+        "├── Level 2\n"
+        "│   Picture Extraction\n"
+        "│   [x] Completed\n"
+        "│\n"
+        "├── Level 3\n"
+        "│   Image Content Understanding & Semantic Extraction\n"
+        "│   [*] Current / completing validation\n"
+        "│\n"
+        "├── Level 4\n"
+        "│   Table Understanding & Structured Extraction\n"
+        "│   [>] Next\n"
+        "│\n"
+        "├── Level 5\n"
+        "│   Formula Understanding & Extraction\n"
+        "│   [>]\n"
+        "│\n"
+        "└── Level 6\n"
+        "    Unified Complex-Content Representation\n"
+        "    [>]"
+    )
+    story.append(make_diagram_box(path_ascii, mono_font))
+    story.append(Spacer(1, 8))
+
+    # Details
+    story.append(
+        Paragraph(
+            "What each remaining level teaches", styles["SectionHeader"]
+        )
+    )
+
+    # Level 4
+    story.append(
+        Paragraph(
+            "Level 4 — Table Understanding & Structured Extraction",
+            styles["LevelHeader"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "We will test whether Docling can preserve:", styles["BodyDark"]
+        )
+    )
+
+    table_ascii = (
+        "PDF Table\n"
+        "   ↓\n"
+        "Docling TableItem\n"
+        "   ↓\n"
+        "Rows / columns / cells\n"
+        "   ↓\n"
+        "Structured representation\n"
+        "   ↓\n"
+        "Markdown / HTML / DataFrame-style representation"
+    )
+    story.append(make_diagram_box(table_ascii, mono_font))
+    story.append(Spacer(1, 3))
+    story.append(
+        Paragraph(
+            "We'll also deliberately test the issue we encountered earlier: "
+            "table vs. visual layout, including a table positioned beside another content region.",
+            styles["BodyDark"],
+        )
+    )
+    story.append(Spacer(1, 4))
+
+    # Level 5
+    story.append(
+        Paragraph(
+            "Level 5 — Formula Understanding & Extraction",
+            styles["LevelHeader"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "Our sample PDF already contains a mathematical formula.",
+            styles["BodyDark"],
+        )
+    )
+    story.append(Paragraph("We'll investigate:", styles["BodyDark"]))
+
+    formula_ascii = (
+        "Formula image / PDF formula\n"
+        "          ↓\n"
+        "       Docling\n"
+        "          ↓\n"
+        "Formula detected?\n"
+        "          ↓\n"
+        "LaTeX / semantic representation?"
+    )
+    story.append(make_diagram_box(formula_ascii, mono_font))
+    story.append(Spacer(1, 3))
+    story.append(Paragraph("We'll distinguish:", styles["BodyDark"]))
+    story.append(Paragraph("Formula as an image", styles["FormulaItem"]))
+    story.append(Paragraph("        ≠", styles["FormulaItem"]))
+    story.append(
+        Paragraph(
+            "Formula recognized as a mathematical expression",
+            styles["FormulaItem"],
+        )
+    )
+    story.append(Spacer(1, 4))
+
+    # Level 6
+    story.append(
+        Paragraph(
+            "Level 6 — Unified Complex-Content Representation",
+            styles["LevelHeader"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "This is the important final exercise before moving to LangChain. We'll take our complete PDF:",
+            styles["BodyDark"],
+        )
+    )
+
+    complex_ascii = (
+        "                  Complex PDF\n"
+        "                      │\n"
+        "        ┌─────────────┼──────────────┐\n"
+        "        ↓             ↓              ↓\n"
+        "       Text          Table          Image\n"
+        "                                      │\n"
+        "                                      ↓\n"
+        "                                    VLM/OCR\n"
+        "        │             │              │\n"
+        "        └─────────────┼──────────────┘\n"
+        "                      ↓\n"
+        "              DoclingDocument\n"
+        "                      │\n"
+        "          ┌───────────┼───────────┐\n"
+        "          ↓           ↓           ↓\n"
+        "        Text        Table       Picture\n"
+        "          │           │           │\n"
+        "          └───────────┼───────────┘\n"
+        "                      ↓\n"
+        "              Unified representation"
+    )
+    story.append(make_diagram_box(complex_ascii, mono_font))
+    story.append(Spacer(1, 3))
+    story.append(
+        Paragraph(
+            "Then we'll ask the most important RAG question:",
+            styles["BodyDark"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "<i>Can we represent all these different content types in a form that a downstream RAG pipeline can actually consume?</i>",
+            styles["BodyDark"],
+        )
+    )
+    story.append(Spacer(1, 4))
+
+    # Completion Transition
+    story.append(
+        Paragraph("Then Stage 1.4.2.5.4 is complete", styles["SectionHeader"])
+    )
+    story.append(Paragraph("At that point:", styles["BodyDark"]))
+
+    stage_transition_ascii = (
+        "Stage 1.4.2.5.4\n"
+        "Docling Table / Image / Formula Understanding\n"
+        "                     │\n"
+        "                     ▼\n"
+        "                  COMPLETE\n"
+        "                     │\n"
+        "                     ▼\n"
+        "Stage 1.4.2.5.5\n"
+        "Docling → LangChain → RAG"
+    )
+    story.append(make_diagram_box(stage_transition_ascii, mono_font))
+    story.append(Spacer(1, 4))
+
+    story.append(
+        Paragraph(
+            "And 1.4.2.5.5 will be where everything starts coming together:",
+            styles["BodyDark"],
+        )
+    )
+
+    rag_ascii = (
+        "PDF\n"
+        " ↓\n"
+        "Docling\n"
+        " ↓\n"
+        "DoclingDocument\n"
+        " ↓\n"
+        "LangChain Documents\n"
+        " ↓\n"
+        "Metadata\n"
+        " ↓\n"
+        "Chunking\n"
+        " ↓\n"
+        "Embeddings\n"
+        " ↓\n"
+        "Vector Store\n"
+        " ↓\n"
+        "Retrieval\n"
+        " ↓\n"
+        "RAG"
+    )
+    story.append(make_diagram_box(rag_ascii, mono_font))
+    story.append(Spacer(1, 6))
+
+    # Next Steps Block
+    next_steps_elements = [
+        Paragraph("So, immediately next", styles["SectionHeader"]),
+        Paragraph(
+            "We should finish Level 3 validation first, because our FOUND result has not yet proven that the words came from the architecture image.",
+            styles["BodyDark"],
+        ),
+        Paragraph("Then:", styles["BodyDark"]),
+        Paragraph(
+            "<b>Level 4 — Table Understanding & Structured Extraction</b>",
+            styles["BodyDark"],
+        ),
+        Paragraph("That gives us a clean progression:", styles["BodyDark"]),
+        Paragraph(
+            "<b>Image → Understand → Table → Formula → Unified representation → LangChain → RAG.</b>",
+            ParagraphStyle(
+                "Highlight",
+                parent=styles["BodyDark"],
+                textColor=colors.HexColor("#1D4ED8"),
+                fontName=bold_font,
+            ),
+        ),
+    ]
+
+    next_steps_table = Table(
+        [[next_steps_elements]], colWidths=[532]
+    )
+    next_steps_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EFF6FF")),
+                ("BOX", (0, 0), (-1, -1), 1.5, colors.HexColor("#3B82F6")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 14),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ]
+        )
+    )
+
+    story.append(KeepTogether(next_steps_table))
 
     doc.build(story, canvasmaker=NumberedCanvas)
-    print(f"Generated successfully: {output_filename}")
+    print(f"Presentation PDF successfully built at: {output_path}")
+
 
 if __name__ == "__main__":
-    generate_experiment_pdf()
+    generate_pdf()
